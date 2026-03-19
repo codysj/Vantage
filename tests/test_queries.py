@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from src.models import IngestionRun
 from src.ingest import persist_events
-from src.queries import get_market_by_api_id, get_market_history, get_top_volume_markets, list_markets
+from src.queries import (
+    get_market_by_api_id,
+    get_market_history,
+    get_recent_ingestion_runs,
+    get_top_volume_markets,
+    list_markets,
+)
 from tests.test_normalize import sample_event_payload
 
 
@@ -23,3 +30,27 @@ def test_query_helpers_return_expected_shapes(session) -> None:
     top = get_top_volume_markets(session, limit=5)
     assert len(top) == 1
     assert top[0][0].market_id == "market-1"
+
+
+def test_recent_ingestion_runs_are_returned_descending(session) -> None:
+    session.add_all(
+        [
+            IngestionRun(
+                run_started_at=datetime(2026, 3, 18, 1, tzinfo=timezone.utc),
+                status="success",
+                trigger_mode="manual",
+                api_source="gamma_events",
+            ),
+            IngestionRun(
+                run_started_at=datetime(2026, 3, 18, 2, tzinfo=timezone.utc),
+                status="failed",
+                trigger_mode="scheduled",
+                api_source="gamma_events",
+            ),
+        ]
+    )
+    session.commit()
+
+    runs = get_recent_ingestion_runs(session, limit=2)
+
+    assert [run.status for run in runs] == ["failed", "success"]

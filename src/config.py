@@ -23,6 +23,13 @@ def _get_int(name: str, default: int) -> int:
     return int(value)
 
 
+def _get_str(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str = os.getenv(
@@ -37,6 +44,15 @@ class Settings:
     polymarket_closed: bool = _get_bool("POLYMARKET_CLOSED", False)
     polymarket_limit: int = _get_int("POLYMARKET_LIMIT", 50)
     polymarket_timeout_seconds: int = _get_int("POLYMARKET_TIMEOUT_SECONDS", 15)
+    pipeline_interval_seconds: int = _get_int("PIPELINE_INTERVAL_SECONDS", 300)
+    pipeline_log_level: str = _get_str("PIPELINE_LOG_LEVEL", "INFO").upper()
+    pipeline_log_to_file: bool = _get_bool("PIPELINE_LOG_TO_FILE", False)
+    pipeline_log_file: str = _get_str("PIPELINE_LOG_FILE", "logs/pipeline.log")
+    pipeline_max_retries: int = _get_int("PIPELINE_MAX_RETRIES", 2)
+    pipeline_misfire_grace_seconds: int = _get_int(
+        "PIPELINE_MISFIRE_GRACE_SECONDS", 30
+    )
+    pipeline_continuous_default: bool = _get_bool("PIPELINE_CONTINUOUS_DEFAULT", False)
 
     @property
     def polymarket_events_url(self) -> str:

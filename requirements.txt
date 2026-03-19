@@ -1,3 +1,4 @@
+APScheduler==3.10.4
 alembic==1.16.5
 certifi==2026.2.25
 charset-normalizer==3.4.5
@@ -8,5 +9,6 @@ python-dotenv==1.1.1
 pytest==8.4.2
 requests==2.32.5
 SQLAlchemy==2.0.43
+tzlocal==5.3.1
 tzdata==2025.3
 urllib3==2.6.3

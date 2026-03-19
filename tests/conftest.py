@@ -10,9 +10,14 @@ from src.models import Base
 
 
 @pytest.fixture()
-def session() -> Generator[Session, None, None]:
+def session_factory() -> sessionmaker:
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+@pytest.fixture()
+def session(session_factory: sessionmaker) -> Generator[Session, None, None]:
+    SessionLocal = session_factory
     with SessionLocal() as db_session:
         yield db_session

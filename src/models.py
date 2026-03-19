@@ -215,3 +215,27 @@ class Trade(Base):
     )
 
     market: Mapped["Market"] = relationship(back_populates="trades")
+
+
+class IngestionRun(Base):
+    __tablename__ = "ingestion_runs"
+    __table_args__ = (Index("ix_ingestion_runs_started_status", "run_started_at", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    run_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    trigger_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    scheduler_job_id: Mapped[str | None] = mapped_column(String(128))
+    api_source: Mapped[str] = mapped_column(String(64), nullable=False, default="gamma_events")
+    records_fetched: Mapped[int] = mapped_column(nullable=False, default=0)
+    events_upserted: Mapped[int] = mapped_column(nullable=False, default=0)
+    markets_upserted: Mapped[int] = mapped_column(nullable=False, default=0)
+    snapshots_inserted: Mapped[int] = mapped_column(nullable=False, default=0)
+    records_skipped: Mapped[int] = mapped_column(nullable=False, default=0)
+    integrity_errors: Mapped[int] = mapped_column(nullable=False, default=0)
+    duration_ms: Mapped[int | None] = mapped_column()
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )

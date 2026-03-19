@@ -187,11 +187,18 @@ def normalize_event(event_payload: dict[str, Any], observed_at: datetime) -> dic
         markets_payload = []
 
     tags = normalize_event_tags(event_payload)
-    normalized_markets = [
-        normalize_market(market_payload, event_api_id=event_api_id, observed_at=observed_at)
-        for market_payload in markets_payload
-        if isinstance(market_payload, dict)
-    ]
+    normalized_markets: list[dict[str, Any]] = []
+    market_errors: list[str] = []
+    for market_payload in markets_payload:
+        if not isinstance(market_payload, dict):
+            market_errors.append(f"Skipping non-dict market payload for event {event_api_id}.")
+            continue
+        try:
+            normalized_markets.append(
+                normalize_market(market_payload, event_api_id=event_api_id, observed_at=observed_at)
+            )
+        except ValueError as exc:
+            market_errors.append(str(exc))
 
     return {
         "event": {
@@ -215,6 +222,7 @@ def normalize_event(event_payload: dict[str, Any], observed_at: datetime) -> dic
         },
         "markets": normalized_markets,
         "tags": tags,
+        "market_errors": market_errors,
     }
 
 

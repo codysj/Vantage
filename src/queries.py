@@ -7,7 +7,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from src.db import SessionLocal
-from src.models import Event, Market, MarketSnapshot
+from src.models import Event, IngestionRun, Market, MarketSnapshot
 
 
 def list_markets(session: Session) -> list[Market]:
@@ -65,6 +65,11 @@ def get_events_with_markets(session: Session) -> list[Event]:
     return list(session.execute(stmt).scalars().unique().all())
 
 
+def get_recent_ingestion_runs(session: Session, limit: int = 10) -> list[IngestionRun]:
+    stmt = select(IngestionRun).order_by(IngestionRun.run_started_at.desc()).limit(limit)
+    return list(session.execute(stmt).scalars().all())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Query stored Information Edge market data.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -82,6 +87,8 @@ def build_parser() -> argparse.ArgumentParser:
     top_parser.add_argument("--limit", type=int, default=10)
 
     subparsers.add_parser("events")
+    runs_parser = subparsers.add_parser("runs")
+    runs_parser.add_argument("--limit", type=int, default=10)
     return parser
 
 
@@ -114,6 +121,13 @@ def main() -> None:
         elif args.command == "events":
             for event in get_events_with_markets(session):
                 print(f"{event.event_id}\t{event.title}\tmarkets={len(event.markets)}")
+        elif args.command == "runs":
+            for run in get_recent_ingestion_runs(session, limit=args.limit):
+                print(
+                    f"{run.id}\t{run.status}\t{run.trigger_mode}\t"
+                    f"{run.run_started_at.isoformat()}\t{run.records_fetched}\t"
+                    f"{run.snapshots_inserted}"
+                )
 
 
 if __name__ == "__main__":

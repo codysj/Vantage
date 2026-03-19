@@ -1,17 +1,17 @@
-# Information Edge Phase 1: Data Storage
+# Information Edge Phase 2: Automated Pipeline
 
-This repo now covers Phase 1 of Information Edge: fetch active Polymarket events, normalize messy API payloads, store durable event and market metadata in PostgreSQL, and append deduplicated historical market snapshots for later analysis.
+This repo now covers Phase 1 and Phase 2 of Information Edge: it can fetch Polymarket events, normalize messy API payloads, persist them to PostgreSQL, and run a repeatable local ingestion service with scheduling, logging, integrity checks, and run history.
 
-## What Phase 1 Includes
+## What Phase 2 Adds
 
-- A PostgreSQL-first relational schema with Alembic migrations
-- A normalization layer for Polymarket payload quirks
-- One-shot ingestion that upserts events, markets, outcomes, and event tags
-- Historical `market_snapshots` storage for time-series queries
-- A small query helper CLI for inspecting stored data
-- Tests for normalization, deduplication, and query behavior
+- `python -m src.pipeline once` for one observable ingestion cycle
+- `python -m src.pipeline serve` for scheduled ingestion in one foreground process
+- Structured logging to console, with optional file logging
+- Pre-write and post-write integrity checks
+- Persistent `ingestion_runs` history for observability
+- Tests covering scheduling behavior, integrity checks, and run tracking
 
-## What Phase 1 Does Not Include
+## What Still Does Not Include
 
 - Scheduling or recurring ingestion
 - Signal detection
@@ -19,6 +19,7 @@ This repo now covers Phase 1 of Information Edge: fetch active Polymarket events
 - Frontend/dashboard work
 - Docker or deployment tooling
 - CI/CD automation
+- Alerting or notification integrations
 
 ## Schema Overview
 
@@ -41,6 +42,9 @@ Stores event-level tags when the payload includes them cleanly.
 
 ### `trades`
 This table exists as a Phase 1 placeholder schema only. Trade ingestion is intentionally not active yet because this repo currently ingests from Gamma `/events`, and trade history should be wired deliberately from Polymarket's trade-oriented endpoints in a later phase.
+
+### `ingestion_runs`
+Stores one row per ingestion cycle. This is the Phase 2 observability table that records when each run started and finished, whether it succeeded, how many records were fetched and written, how many were skipped, and whether integrity checks failed.
 
 ## Deduplication Strategy
 
@@ -107,13 +111,35 @@ Then edit `.env` if your local PostgreSQL username, password, host, or database 
 alembic upgrade head
 ```
 
-## Running Ingestion
+## Running One Ingestion Cycle
 
-Fetch and store one batch of Polymarket events:
+Phase 1-compatible entrypoint:
 
 ```powershell
 python -m src.ingest
 ```
+
+Phase 2 pipeline entrypoint:
+
+```powershell
+python -m src.pipeline once
+```
+
+## Running The Continuous Pipeline
+
+Start the local scheduler service:
+
+```powershell
+python -m src.pipeline serve
+```
+
+The scheduler runs one ingestion cycle every `PIPELINE_INTERVAL_SECONDS` seconds. It is configured to avoid overlapping runs:
+
+- APScheduler runs with `max_instances=1`
+- scheduled jobs are coalesced if the process falls behind
+- the service also uses an in-process lock and skips a cycle if one is already active
+
+Use `Ctrl+C` to stop the foreground service cleanly.
 
 ## Querying Stored Data
 
@@ -153,11 +179,57 @@ Show events with nested market counts:
 python -m src.queries events
 ```
 
+Inspect recent ingestion runs:
+
+```powershell
+python -m src.queries runs --limit 10
+python -m src.pipeline runs --limit 10
+```
+
+## Logging And Integrity Checks
+
+The Phase 2 pipeline logs:
+
+- pipeline startup and shutdown
+- scheduler configuration
+- start and end of each run
+- fetched counts
+- inserted or deduplicated snapshot behavior through run counters
+- skipped bad records
+- integrity-check results
+- failures and run duration
+
+Integrity checks are real pipeline steps, not TODOs:
+
+- pre-write checks validate required IDs, numeric parsing, parent-child relationships, negative nonsensical values, and out-of-range probability-like prices
+- post-write checks verify duplicate protections, orphan detection, blank critical identifiers, and general DB sanity after each run
+
+Bad individual records are logged and skipped. Systemic post-write failures mark the whole run as failed.
+
 ## Running Tests
 
 ```powershell
-pytest
+.\venv\Scripts\python.exe -m pytest
 ```
+
+## Configuration
+
+Environment variables now include:
+
+- `DATABASE_URL`
+- `POLYMARKET_BASE_URL`
+- `POLYMARKET_EVENTS_PATH`
+- `POLYMARKET_ACTIVE`
+- `POLYMARKET_CLOSED`
+- `POLYMARKET_LIMIT`
+- `POLYMARKET_TIMEOUT_SECONDS`
+- `PIPELINE_INTERVAL_SECONDS`
+- `PIPELINE_LOG_LEVEL`
+- `PIPELINE_LOG_TO_FILE`
+- `PIPELINE_LOG_FILE`
+- `PIPELINE_MAX_RETRIES`
+- `PIPELINE_MISFIRE_GRACE_SECONDS`
+- `PIPELINE_CONTINUOUS_DEFAULT`
 
 ## Design Notes
 
@@ -165,7 +237,8 @@ pytest
 - Tests use in-memory SQLite for speed, but the production path remains PostgreSQL plus Alembic.
 - Raw event and market payloads are stored so future phases can add fields without guessing how older payloads looked.
 - The code favors small helper functions and explicit data flow over framework-heavy abstractions.
+- Scheduling is intentionally in-process and lightweight so the pipeline stays easy to explain in an interview.
 
 ## Known Limitation
 
-The current Phase 1 ingestion command only uses Gamma `/events`. Polymarket exposes separate trade-oriented APIs, but this repo does not ingest them yet. The `trades` table is included so Phase 2 or a later storage extension can add real trade history without redesigning the rest of the schema.
+The pipeline still ingests only Gamma `/events`. Trade-history ingestion, signal detection, APIs, dashboards, deployment, and production process management are still deferred to later phases. The `trades` table exists, but the pipeline does not populate it yet.
