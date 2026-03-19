@@ -20,7 +20,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -135,12 +136,28 @@ input {
   font-weight: 600;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   padding: 12px 14px;
   border: 1px solid #c9d6e4;
   border-radius: 12px;
   background: #f8fbff;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: #314961;
+  font-weight: 600;
 }
 
 .filter-row {
@@ -190,6 +207,10 @@ input {
   background: #edf4ff;
 }
 
+.market-row-selected-strong {
+  box-shadow: inset 3px 0 0 #0f5cc0;
+}
+
 .market-row-main,
 .market-row-meta,
 .signal-card-main {
@@ -209,8 +230,35 @@ input {
   font-size: 0.92rem;
 }
 
+.market-row-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .market-question {
   font-weight: 700;
+}
+
+.market-category-badge,
+.signal-presence-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.market-category-badge {
+  background: #edf2fa;
+  color: #425871;
+}
+
+.signal-presence-badge {
+  background: #e8f1ff;
+  color: #0f5cc0;
 }
 
 .status-badge {
@@ -291,6 +339,12 @@ input {
 .stat-value-emphasis {
   font-size: 1.5rem;
   color: #0f5cc0;
+}
+
+.detail-freshness {
+  margin-top: 10px;
+  color: #5f748d;
+  font-size: 0.92rem;
 }
 
 .signal-list,
@@ -392,6 +446,26 @@ input {
 
 .signal-summary {
   font-weight: 600;
+}
+
+.signal-context {
+  color: #617792;
+  font-size: 0.92rem;
+}
+
+.signal-strength-low {
+  background: #eef2f7;
+  color: #51657c;
+}
+
+.signal-strength-medium {
+  background: #fff4df;
+  color: #aa6b00;
+}
+
+.signal-strength-high {
+  background: #e7f6ec;
+  color: #1d7c3b;
 }
 
 .signal-time {
@@ -503,5 +577,13 @@ input {
   .system-status-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .market-row-badges {
+    justify-content: flex-start;
   }
 }

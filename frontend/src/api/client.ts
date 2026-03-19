@@ -50,6 +50,9 @@ export function getMarkets(params: {
   active?: boolean;
   closed?: boolean;
   q?: string;
+  category?: string;
+  has_signals?: boolean;
+  signal_type?: string;
 }) {
   return fetchJson<MarketListResponse>("/markets", params);
 }

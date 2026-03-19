@@ -1,4 +1,10 @@
 import type { SignalItem } from "../types";
+import {
+  formatDateTime,
+  formatRelativeTime,
+  signalContext,
+  signalStrengthTier,
+} from "../utils/format";
 
 type SignalListProps = {
   signals: SignalItem[];
@@ -46,7 +52,14 @@ export function SignalList({
   sortByStrength = false,
 }: SignalListProps) {
   const visibleSignals = sortByStrength
-    ? [...signals].sort((left, right) => right.signal_strength - left.signal_strength)
+    ? [...signals].sort((left, right) => {
+        if (right.signal_strength !== left.signal_strength) {
+          return right.signal_strength - left.signal_strength;
+        }
+        return (
+          new Date(right.detected_at).getTime() - new Date(left.detected_at).getTime()
+        );
+      })
     : signals;
 
   return (
@@ -62,6 +75,10 @@ export function SignalList({
             const clickable = Boolean(onSelectMarket);
             const selected = selectedMarketId === signal.market_id;
             const marketStatus = statusLabel(signal);
+            const strengthTier = signalStrengthTier(
+              signal.signal_type,
+              signal.signal_strength,
+            );
             const cardClassName = [
               "signal-card",
               clickable ? "signal-card-clickable" : "",
@@ -97,13 +114,16 @@ export function SignalList({
                 ) : null}
                 <div className="signal-card-main">
                   <span className="signal-type">{signal.signal_type}</span>
-                  <span className="signal-strength signal-strength-pill">
-                    {signal.signal_strength.toFixed(2)}
+                  <span
+                    className={`signal-strength signal-strength-pill signal-strength-${strengthTier}`}
+                  >
+                    {strengthTier} · {signal.signal_strength.toFixed(2)}
                   </span>
                 </div>
                 <p className="signal-summary">{signal.summary ?? "No summary available."}</p>
-                <span className="signal-time">
-                  {new Date(signal.detected_at).toLocaleString()}
+                <p className="signal-context">{signalContext(signal.signal_type)}</p>
+                <span className="signal-time" title={formatDateTime(signal.detected_at)}>
+                  {formatRelativeTime(signal.detected_at)}
                 </span>
               </>
             );

@@ -28,6 +28,7 @@ from src.config import settings
 from src.db import SessionLocal
 from src.models import IngestionRun, MarketSnapshot, Signal
 from src.queries import (
+    get_available_market_categories,
     get_ingestion_run_by_id,
     get_market_detail_for_api,
     get_market_history,
@@ -140,6 +141,9 @@ def list_markets_api(
     active: bool | None = None,
     closed: bool | None = None,
     q: str | None = None,
+    category: str | None = None,
+    has_signals: bool | None = None,
+    signal_type: str | None = None,
     db: Session = Depends(get_db),
 ) -> MarketListResponse:
     rows = get_markets_for_api(
@@ -150,6 +154,9 @@ def list_markets_api(
         active=active,
         closed=closed,
         q=q,
+        category=category,
+        has_signals=has_signals,
+        signal_type=signal_type,
     )
     items = [
         MarketSummary(
@@ -157,15 +164,23 @@ def list_markets_api(
             event_id=market.event.event_id,
             slug=market.slug,
             question=market.question,
+            category=market_category,
+            has_signals=has_signals_value,
             active=market.active,
             closed=market.closed,
             latest_price=_decimal_to_float(snapshot.last_trade_price) if snapshot else None,
             latest_volume=_decimal_to_float(snapshot.volume) if snapshot else None,
             latest_snapshot_at=snapshot.observed_at if snapshot else None,
         )
-        for market, snapshot in rows
+        for market, snapshot, market_category, has_signals_value in rows
     ]
-    return MarketListResponse(items=items, limit=limit, offset=offset, count=len(items))
+    return MarketListResponse(
+        items=items,
+        limit=limit,
+        offset=offset,
+        count=len(items),
+        available_categories=get_available_market_categories(db),
+    )
 
 
 @app.get("/markets/{market_id}", response_model=MarketDetailResponse, summary="Get market detail")

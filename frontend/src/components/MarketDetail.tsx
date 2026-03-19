@@ -6,6 +6,12 @@ import type {
   SignalItem,
   SnapshotHistoryRow,
 } from "../types";
+import {
+  formatCompactNumber,
+  formatDateTime,
+  formatProbability,
+  formatRelativeTime,
+} from "../utils/format";
 import { PriceChart } from "./PriceChart";
 import { SignalList } from "./SignalList";
 import { WhaleAlertsPanel } from "./WhaleAlertsPanel";
@@ -94,6 +100,12 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
         <div className="panel-header">
           <h2>{market.question ?? market.slug ?? market.market_id}</h2>
           <p>{market.description ?? "No description available."}</p>
+          <p className="detail-freshness">
+            Latest snapshot{" "}
+            <span title={formatDateTime(market.latest_snapshot?.observed_at ?? null)}>
+              {formatRelativeTime(market.latest_snapshot?.observed_at ?? null)}
+            </span>
+          </p>
         </div>
         <div className="detail-stats">
           <div className="stat-card stat-card-emphasis">
@@ -101,7 +113,7 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
             <span className="stat-value stat-value-emphasis">
               {market.latest_snapshot?.last_trade_price !== null &&
               market.latest_snapshot
-                ? market.latest_snapshot.last_trade_price.toFixed(2)
+                ? formatProbability(market.latest_snapshot.last_trade_price)
                 : "--"}
             </span>
           </div>
@@ -113,7 +125,7 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
             <span className="stat-label">Latest Volume</span>
             <span className="stat-value">
               {market.latest_snapshot?.volume !== null && market.latest_snapshot
-                ? market.latest_snapshot.volume.toFixed(2)
+                ? formatCompactNumber(market.latest_snapshot.volume)
                 : "--"}
             </span>
           </div>
@@ -122,7 +134,7 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
             <span className="stat-value">
               {market.latest_snapshot?.liquidity !== null &&
               market.latest_snapshot
-                ? market.latest_snapshot.liquidity.toFixed(2)
+                ? formatCompactNumber(market.latest_snapshot.liquidity)
                 : "--"}
             </span>
           </div>

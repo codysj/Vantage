@@ -9,6 +9,8 @@ export type MarketSummary = {
   event_id: string;
   slug: string | null;
   question: string | null;
+  category: string | null;
+  has_signals: boolean;
   active: boolean | null;
   closed: boolean | null;
   latest_price: number | null;
@@ -21,6 +23,7 @@ export type MarketListResponse = {
   limit: number;
   offset: number;
   count: number;
+  available_categories: string[];
 };
 
 export type MarketOutcome = {

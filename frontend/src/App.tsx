@@ -18,6 +18,10 @@ export default function App() {
 
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("all");
+  const [category, setCategory] = useState("all");
+  const [categories, setCategories] = useState<string[]>([]);
+  const [hasSignalsOnly, setHasSignalsOnly] = useState(false);
+  const [signalType, setSignalType] = useState("all");
 
   const [markets, setMarkets] = useState<MarketSummary[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(true);
@@ -43,8 +47,11 @@ export default function App() {
       q: query.trim() || undefined,
       active,
       closed,
+      category: category !== "all" ? category : undefined,
+      has_signals: hasSignalsOnly ? true : undefined,
+      signal_type: signalType !== "all" ? signalType : undefined,
     };
-  }, [activeFilter, query]);
+  }, [activeFilter, category, hasSignalsOnly, query, signalType]);
 
   useEffect(() => {
     let active = true;
@@ -80,6 +87,7 @@ export default function App() {
         }
 
         setMarkets(response.items);
+        setCategories(response.available_categories);
         setOffset(response.items.length);
         setHasMore(response.count === PAGE_SIZE);
         setSelectedMarketId((current) => {
@@ -173,6 +181,9 @@ export default function App() {
       q: query.trim() || undefined,
       active,
       closed,
+      category: category !== "all" ? category : undefined,
+      has_signals: hasSignalsOnly ? true : undefined,
+      signal_type: signalType !== "all" ? signalType : undefined,
     })
       .then((response) => {
         setMarkets((current) => [...current, ...response.items]);
@@ -206,8 +217,15 @@ export default function App() {
           <SearchControls
             query={query}
             activeFilter={activeFilter}
+            category={category}
+            categories={categories}
+            hasSignalsOnly={hasSignalsOnly}
+            signalType={signalType}
             onQueryChange={setQuery}
             onActiveFilterChange={setActiveFilter}
+            onCategoryChange={setCategory}
+            onHasSignalsOnlyChange={setHasSignalsOnly}
+            onSignalTypeChange={setSignalType}
           />
           <MarketList
             markets={markets}

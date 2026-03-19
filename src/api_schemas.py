@@ -30,6 +30,8 @@ class MarketSummary(BaseModel):
     event_id: str
     slug: str | None = None
     question: str | None = None
+    category: str | None = None
+    has_signals: bool = False
     active: bool | None = None
     closed: bool | None = None
     latest_price: float | None = None
@@ -42,6 +44,7 @@ class MarketListResponse(BaseModel):
     limit: int
     offset: int
     count: int
+    available_categories: list[str] = Field(default_factory=list)
 
 
 class MarketOutcomeResponse(BaseModel):

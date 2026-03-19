@@ -1,4 +1,9 @@
 import type { HealthResponse, RunItem } from "../types";
+import {
+  formatCompactNumber,
+  formatDateTime,
+  formatRelativeTime,
+} from "../utils/format";
 
 type SystemStatusPanelProps = {
   runs: RunItem[];
@@ -18,41 +23,6 @@ function formatDuration(durationMs: number | null) {
   }
 
   return `${durationMs}ms`;
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "--";
-  }
-
-  return new Date(value).toLocaleString();
-}
-
-function relativeTime(value: string | null) {
-  if (!value) {
-    return "No successful sweep recorded yet.";
-  }
-
-  const diffMs = Date.now() - new Date(value).getTime();
-  if (Number.isNaN(diffMs) || diffMs < 0) {
-    return `Updated at ${formatDate(value)}`;
-  }
-
-  const diffMinutes = Math.floor(diffMs / 60000);
-  if (diffMinutes < 1) {
-    return "Updated less than a minute ago.";
-  }
-  if (diffMinutes < 60) {
-    return `Updated ${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago.`;
-  }
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `Updated ${diffHours} hour${diffHours === 1 ? "" : "s"} ago.`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  return `Updated ${diffDays} day${diffDays === 1 ? "" : "s"} ago.`;
 }
 
 function deriveStatus(
@@ -141,7 +111,13 @@ export function SystemStatusPanel({
       <div className="system-status-header">
         <span className={status.className}>{status.label}</span>
         <div className="system-status-copy">
-          <strong>{relativeTime(latestSuccessfulRun?.run_finished_at ?? latestSuccessfulRun?.run_started_at ?? null)}</strong>
+          <strong>
+            {latestSuccessfulRun
+              ? `Updated ${formatRelativeTime(
+                  latestSuccessfulRun.run_finished_at ?? latestSuccessfulRun.run_started_at,
+                )}`
+              : "No successful sweep recorded yet."}
+          </strong>
           <span>
             API {healthError ? "unavailable" : health?.status ?? "unknown"}
           </span>
@@ -151,8 +127,15 @@ export function SystemStatusPanel({
       <div className="status-metric-grid">
         <div className="status-metric-card">
           <span className="status-metric-label">Last successful sweep</span>
-          <span className="status-metric-value">
-            {formatDate(
+          <span
+            className="status-metric-value"
+            title={formatDateTime(
+              latestSuccessfulRun?.run_finished_at ??
+                latestSuccessfulRun?.run_started_at ??
+                null,
+            )}
+          >
+            {formatRelativeTime(
               latestSuccessfulRun?.run_finished_at ??
                 latestSuccessfulRun?.run_started_at ??
                 null,
@@ -168,27 +151,33 @@ export function SystemStatusPanel({
         <div className="status-metric-card">
           <span className="status-metric-label">Markets processed</span>
           <span className="status-metric-value">
-            {latestRun.markets_upserted || latestRun.records_fetched}
+            {formatCompactNumber(latestRun.markets_upserted || latestRun.records_fetched)}
           </span>
         </div>
         <div className="status-metric-card">
           <span className="status-metric-label">Snapshots written</span>
-          <span className="status-metric-value">{latestRun.snapshots_inserted}</span>
+          <span className="status-metric-value">
+            {formatCompactNumber(latestRun.snapshots_inserted)}
+          </span>
         </div>
         <div className="status-metric-card">
           <span className="status-metric-label">Records skipped</span>
-          <span className="status-metric-value">{latestRun.records_skipped}</span>
+          <span className="status-metric-value">
+            {formatCompactNumber(latestRun.records_skipped)}
+          </span>
         </div>
         <div className="status-metric-card">
           <span className="status-metric-label">Integrity issues</span>
-          <span className="status-metric-value">{latestRun.integrity_errors}</span>
+          <span className="status-metric-value">
+            {formatCompactNumber(latestRun.integrity_errors)}
+          </span>
         </div>
       </div>
 
       <div className="system-status-footer">
         <span>Latest trigger: {latestRun.trigger_mode}</span>
-        <span>
-          Latest sweep started {formatDate(latestRun.run_started_at)}
+        <span title={formatDateTime(latestRun.run_started_at)}>
+          Latest sweep started {formatRelativeTime(latestRun.run_started_at)}
         </span>
       </div>
     </div>

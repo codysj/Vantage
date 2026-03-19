@@ -16,6 +16,8 @@ const marketsResponse = {
       event_id: "event-1",
       slug: "will-fed-cut-rates-june",
       question: "Will the Fed cut rates in June?",
+      category: "Economy",
+      has_signals: true,
       active: true,
       closed: false,
       latest_price: 0.43,
@@ -27,6 +29,8 @@ const marketsResponse = {
       event_id: "event-2",
       slug: "will-cpi-rise-april",
       question: "Will CPI rise in April?",
+      category: "Economy",
+      has_signals: true,
       active: true,
       closed: false,
       latest_price: 0.61,
@@ -37,6 +41,7 @@ const marketsResponse = {
   limit: 20,
   offset: 0,
   count: 2,
+  available_categories: ["Economy", "Politics"],
 };
 
 const marketDetailResponse = {
@@ -291,6 +296,9 @@ describe("App", () => {
     expect(screen.getByText("System Status")).toBeInTheDocument();
     expect(screen.getByText("Healthy")).toBeInTheDocument();
     expect(screen.getByText("Latest run duration")).toBeInTheDocument();
+    expect(screen.getByLabelText("Category filter")).toBeInTheDocument();
+    expect(screen.getByLabelText("Signal type filter")).toBeInTheDocument();
+    expect(screen.getByLabelText("With signals only")).toBeInTheDocument();
     expect(
       screen.getByText("Trade ingestion is not active yet; whale alerts are deferred."),
     ).toBeInTheDocument();
@@ -320,6 +328,7 @@ describe("App", () => {
     expect(signalContainer).not.toBeNull();
     const titles = within(signalContainer as HTMLElement).getAllByText(/Will .* in .*\?/i);
     expect(titles[0]).toHaveTextContent("Will CPI rise in April?");
+    expect(within(signalContainer as HTMLElement).getByText("Volume is elevated versus the recent baseline.")).toBeInTheDocument();
   });
 
   it("updates search input and refetches market list", async () => {
@@ -337,6 +346,40 @@ describe("App", () => {
         expect.stringContaining("/markets?limit=20&offset=0&q=rates"),
       );
     });
+  });
+
+  it("applies browser filter controls to the market request", async () => {
+    const fetchMock = installFetchMock();
+
+    render(<App />);
+    await screen.findByText("Will the Fed cut rates in June?");
+
+    fireEvent.change(screen.getByLabelText("Category filter"), {
+      target: { value: "Economy" },
+    });
+    fireEvent.click(screen.getByLabelText("With signals only"));
+    fireEvent.change(screen.getByLabelText("Signal type filter"), {
+      target: { value: "price_movement" },
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "/markets?limit=20&offset=0&category=Economy&has_signals=true&signal_type=price_movement",
+        ),
+      );
+    });
+  });
+
+  it("marks the selected market row clearly in the browser", async () => {
+    installFetchMock();
+
+    render(<App />);
+    const selectedRow = await screen.findByRole("button", {
+      name: /Will the Fed cut rates in June\?/i,
+    });
+
+    expect(selectedRow.className).toContain("market-row-selected-strong");
   });
 
   it("renders empty chart and signal states when market detail has no history", async () => {
@@ -359,6 +402,42 @@ describe("App", () => {
 
     await screen.findByText("Unable to load markets right now.");
     expect(screen.getByText("Unable to load markets right now.")).toBeInTheDocument();
+  });
+
+  it("renders an empty state when filters produce no markets", async () => {
+    const mockFetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/health")) {
+        return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
+      }
+      if (url.includes("/markets?")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ items: [], limit: 20, offset: 0, count: 0, available_categories: ["Economy"] }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes("/signals?")) {
+        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+      }
+      if (url.includes("/runs?")) {
+        return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
+      }
+      if (url.includes("/whale-alerts")) {
+        return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
+      }
+
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    render(<App />);
+
+    await screen.findByText("No markets match the current filters.");
+    expect(screen.getByText("No markets match the current filters.")).toBeInTheDocument();
   });
 
   it("renders a friendly empty state when no pipeline runs exist", async () => {

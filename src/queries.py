@@ -4,11 +4,20 @@ import argparse
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import and_, desc, exists, func, literal, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from src.db import SessionLocal
-from src.models import Event, IngestionRun, Market, MarketOutcome, MarketSnapshot, Signal
+from src.models import (
+    Event,
+    EventTag,
+    IngestionRun,
+    Market,
+    MarketOutcome,
+    MarketSnapshot,
+    Signal,
+    Tag,
+)
 
 
 def list_markets(session: Session) -> list[Market]:
@@ -25,7 +34,10 @@ def get_markets_for_api(
     active: bool | None = None,
     closed: bool | None = None,
     q: str | None = None,
-) -> list[tuple[Market, MarketSnapshot | None]]:
+    category: str | None = None,
+    has_signals: bool | None = None,
+    signal_type: str | None = None,
+) -> list[tuple[Market, MarketSnapshot | None, str | None, bool]]:
     latest_snapshot_subquery = (
         select(
             MarketSnapshot.market_id.label("market_id"),
@@ -34,8 +46,29 @@ def get_markets_for_api(
         .group_by(MarketSnapshot.market_id)
         .subquery()
     )
+
+    primary_tag_subquery = (
+        select(
+            EventTag.event_id.label("event_id"),
+            func.min(Tag.label).label("primary_tag_label"),
+        )
+        .join(Tag, EventTag.tag_id == Tag.id)
+        .group_by(EventTag.event_id)
+        .subquery()
+    )
+
+    category_expr = func.coalesce(Event.category, primary_tag_subquery.c.primary_tag_label)
+    has_signals_exists = exists(
+        select(literal(1)).select_from(Signal).where(Signal.market_id == Market.id)
+    )
+
     stmt = (
-        select(Market, MarketSnapshot)
+        select(
+            Market,
+            MarketSnapshot,
+            category_expr.label("category"),
+            has_signals_exists.label("has_signals"),
+        )
         .outerjoin(latest_snapshot_subquery, latest_snapshot_subquery.c.market_id == Market.id)
         .outerjoin(
             MarketSnapshot,
@@ -43,6 +76,7 @@ def get_markets_for_api(
             & (MarketSnapshot.observed_at == latest_snapshot_subquery.c.max_observed_at),
         )
         .join(Event, Market.event_id == Event.id)
+        .outerjoin(primary_tag_subquery, primary_tag_subquery.c.event_id == Event.id)
     )
     if slug:
         stmt = stmt.where(Market.slug == slug)
@@ -60,8 +94,48 @@ def get_markets_for_api(
                 Event.question.ilike(pattern),
             )
         )
-    stmt = stmt.order_by(Market.slug.is_(None), Market.slug, Market.market_id).limit(limit).offset(offset)
+    if category:
+        normalized_category = category.strip().lower()
+        stmt = stmt.where(func.lower(category_expr) == normalized_category)
+    if has_signals is True:
+        stmt = stmt.where(has_signals_exists)
+    if signal_type:
+        stmt = stmt.where(
+            exists(
+                select(literal(1))
+                .select_from(Signal)
+                .where(and_(Signal.market_id == Market.id, Signal.signal_type == signal_type))
+            )
+        )
+
+    stmt = stmt.order_by(
+        desc(has_signals_exists),
+        Market.slug.is_(None),
+        Market.slug,
+        Market.market_id,
+    ).limit(limit).offset(offset)
     return list(session.execute(stmt).all())
+
+
+def get_available_market_categories(session: Session) -> list[str]:
+    primary_tag_subquery = (
+        select(
+            EventTag.event_id.label("event_id"),
+            func.min(Tag.label).label("primary_tag_label"),
+        )
+        .join(Tag, EventTag.tag_id == Tag.id)
+        .group_by(EventTag.event_id)
+        .subquery()
+    )
+    category_expr = func.coalesce(Event.category, primary_tag_subquery.c.primary_tag_label)
+    stmt = (
+        select(func.distinct(category_expr))
+        .select_from(Event)
+        .outerjoin(primary_tag_subquery, primary_tag_subquery.c.event_id == Event.id)
+        .where(category_expr.is_not(None))
+        .order_by(category_expr.asc())
+    )
+    return [value for value in session.execute(stmt).scalars().all() if value]
 
 
 def get_market_by_api_id(session: Session, market_id: str) -> Market | None:

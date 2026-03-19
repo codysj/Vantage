@@ -38,6 +38,7 @@ def create_test_client(session_factory):
 
 def seed_market_data(session_factory) -> None:
     payload = sample_event_payload()
+    payload["category"] = "Economy"
     payload["markets"][0]["lastTradePrice"] = "0.43"
     payload["markets"][0]["volume"] = "150"
     payload["markets"][0]["liquidity"] = "20"
@@ -101,6 +102,9 @@ def test_markets_endpoints() -> None:
 
     assert list_response.status_code == 200
     assert list_response.json()["count"] == 1
+    assert list_response.json()["available_categories"] == ["Economy"]
+    assert list_response.json()["items"][0]["category"] == "Economy"
+    assert list_response.json()["items"][0]["has_signals"] is True
     assert detail_response.status_code == 200
     assert detail_response.json()["market_id"] == "market-1"
     assert history_response.status_code == 200
@@ -114,10 +118,19 @@ def test_markets_filter_and_404() -> None:
     client = create_test_client(session_factory)
 
     filtered = client.get("/markets", params={"slug": "will-fed-cut-rates-june"})
+    category_filtered = client.get("/markets", params={"category": "Economy"})
+    has_signals_filtered = client.get("/markets", params={"has_signals": "true"})
+    signal_type_filtered = client.get("/markets", params={"signal_type": "price_movement"})
     missing = client.get("/markets/does-not-exist")
 
     assert filtered.status_code == 200
     assert filtered.json()["count"] == 1
+    assert category_filtered.status_code == 200
+    assert category_filtered.json()["count"] == 1
+    assert has_signals_filtered.status_code == 200
+    assert has_signals_filtered.json()["count"] == 1
+    assert signal_type_filtered.status_code == 200
+    assert signal_type_filtered.json()["count"] == 1
     assert missing.status_code == 404
     app.dependency_overrides.clear()
 

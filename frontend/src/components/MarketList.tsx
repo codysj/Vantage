@@ -1,4 +1,9 @@
 import type { MarketSummary } from "../types";
+import {
+  formatCompactNumber,
+  formatProbability,
+  formatRelativeTime,
+} from "../utils/format";
 
 type MarketListProps = {
   markets: MarketSummary[];
@@ -9,22 +14,6 @@ type MarketListProps = {
   onLoadMore: () => void;
   hasMore: boolean;
 };
-
-function formatNumber(value: number | null) {
-  if (value === null) {
-    return "--";
-  }
-
-  return value.toFixed(2);
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "--";
-  }
-
-  return new Date(value).toLocaleString();
-}
 
 export function MarketList({
   markets,
@@ -44,7 +33,7 @@ export function MarketList({
   }
 
   if (markets.length === 0) {
-    return <div className="panel list-state">No markets found for the current filters.</div>;
+    return <div className="panel list-state">No markets match the current filters.</div>;
   }
 
   return (
@@ -55,7 +44,7 @@ export function MarketList({
             <button
               className={
                 selectedMarketId === market.market_id
-                  ? "market-row selected"
+                  ? "market-row selected market-row-selected-strong"
                   : "market-row"
               }
               onClick={() => onSelectMarket(market.market_id)}
@@ -65,20 +54,30 @@ export function MarketList({
                 <span className="market-question">
                   {market.question ?? market.slug ?? market.market_id}
                 </span>
-                <span
-                  className={
-                    market.closed
-                      ? "status-badge closed"
-                      : "status-badge active"
-                  }
-                >
-                  {market.closed ? "Closed" : market.active ? "Active" : "Unknown"}
-                </span>
+                <div className="market-row-badges">
+                  {market.category ? (
+                    <span className="market-category-badge">{market.category}</span>
+                  ) : null}
+                  {market.has_signals ? (
+                    <span className="signal-presence-badge">Signals</span>
+                  ) : null}
+                  <span
+                    className={
+                      market.closed
+                        ? "status-badge closed"
+                        : "status-badge active"
+                    }
+                  >
+                    {market.closed ? "Closed" : market.active ? "Active" : "Unknown"}
+                  </span>
+                </div>
               </div>
               <div className="market-row-meta">
-                <span>Price {formatNumber(market.latest_price)}</span>
-                <span>Volume {formatNumber(market.latest_volume)}</span>
-                <span>{formatDate(market.latest_snapshot_at)}</span>
+                <span>Price {formatProbability(market.latest_price)}</span>
+                <span>Volume {formatCompactNumber(market.latest_volume)}</span>
+                <span title={market.latest_snapshot_at ?? undefined}>
+                  {formatRelativeTime(market.latest_snapshot_at)}
+                </span>
               </div>
             </button>
           </li>
