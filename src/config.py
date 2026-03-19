@@ -65,10 +65,17 @@ class Settings:
     signal_volume_multiplier: Decimal = _get_decimal("SIGNAL_VOLUME_MULTIPLIER", "3.0")
     signal_liquidity_threshold: Decimal = _get_decimal("SIGNAL_LIQUIDITY_THRESHOLD", "0.20")
     signal_lookback_window_minutes: int = _get_int("SIGNAL_LOOKBACK_WINDOW_MINUTES", 30)
+    api_cors_origins: str = _get_str(
+        "API_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
+    )
 
     @property
     def polymarket_events_url(self) -> str:
         return f"{self.polymarket_base_url}{self.polymarket_events_path}"
+
+    @property
+    def api_cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.api_cors_origins.split(",") if origin.strip()]
 
 
 settings = Settings()

@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from src.api_schemas import (
@@ -23,6 +24,7 @@ from src.api_schemas import (
     SnapshotSummary,
     WhaleAlertsResponse,
 )
+from src.config import settings
 from src.db import SessionLocal
 from src.models import IngestionRun, MarketSnapshot, Signal
 from src.queries import (
@@ -42,6 +44,13 @@ app = FastAPI(
     title="Information Edge API",
     description="Read-only analytics API for markets, historical snapshots, signals, and pipeline observability.",
     version=API_VERSION,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.api_cors_origin_list,
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["*"],
 )
 
 

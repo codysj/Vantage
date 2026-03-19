@@ -15,3 +15,7 @@ Thumbs.db
 
 # Data files (optional later)
 *.sqlite
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

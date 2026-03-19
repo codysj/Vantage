@@ -1,18 +1,21 @@
-# Information Edge Phase 4: Backend API
+# Information Edge Phase 5: Frontend Foundation
 
-This repo now covers Phase 1 through Phase 4 of Information Edge: it can fetch Polymarket events, store and analyze them, run a repeatable ingestion pipeline, generate signals, and expose the resulting market analytics through a read-only FastAPI backend.
+This repo now covers Phase 1 through Phase 5 of Information Edge: it can fetch Polymarket events, store and analyze them, run a repeatable ingestion pipeline, generate signals, expose market analytics through a read-only FastAPI backend, and render a React dashboard on top of that backend.
 
-## What Phase 4 Adds
+## What Phase 5 Adds
 
-- A FastAPI app with Swagger docs at `/docs`
-- Read-only endpoints for markets, historical snapshots, signals, runs, and whale-alert placeholder responses
-- Typed response schemas for clean JSON output
-- Automated API tests with FastAPI `TestClient`
-- Browser/Postman-friendly local API demo support
+- A new `frontend/` app built with Vite + React + TypeScript
+- A split-panel dashboard with a market browser and market detail view
+- Historical price charting with Recharts
+- Signal history surfaced in the UI
+- A truthful whale-alert placeholder panel backed by the API
+- A lightweight pipeline-runs observability panel
+- Frontend smoke/integration tests with Vitest + React Testing Library
 
 ## What Still Does Not Include
 
-- Frontend/dashboard work
+- Sentiment or NLP overlays
+- Real whale detection from trade ingestion
 - Docker or deployment tooling
 - CI/CD automation
 - Alerting or notification integrations
@@ -66,15 +69,23 @@ This means retries or overlapping pulls do not create duplicate historical rows,
 
 ```text
 src/
+  api.py
+  api_schemas.py
   api_client.py
   config.py
   db.py
   ingest.py
   models.py
   normalize.py
+  pipeline.py
   queries.py
+  signals.py
 migrations/
 tests/
+frontend/
+  src/
+  package.json
+  vite.config.ts
 .env.example
 alembic.ini
 ```
@@ -94,11 +105,19 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-### 3. Create a PostgreSQL database
+### 3. Install frontend dependencies
+
+```powershell
+cd frontend
+npm install
+cd ..
+```
+
+### 4. Create a PostgreSQL database
 
 Create a database named `information_edge`, or adjust `DATABASE_URL` in `.env`.
 
-### 4. Configure environment variables
+### 5. Configure environment variables
 
 ```powershell
 Copy-Item .env.example .env
@@ -106,7 +125,13 @@ Copy-Item .env.example .env
 
 Then edit `.env` if your local PostgreSQL username, password, host, or database name differs.
 
-### 5. Run the schema migration
+Create the frontend env file too:
+
+```powershell
+Copy-Item frontend\.env.example frontend\.env
+```
+
+### 6. Run the schema migration
 
 ```powershell
 alembic upgrade head
@@ -140,6 +165,34 @@ Then open:
 
 - [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+
+The backend now includes CORS support for the local Vite dev server. By default:
+
+- `http://127.0.0.1:5173`
+- `http://localhost:5173`
+
+If your frontend runs from a different origin, update `API_CORS_ORIGINS` in `.env`.
+
+## Running The Frontend
+
+Start the React dashboard from the `frontend/` directory:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Then open the Vite URL shown in the terminal, usually:
+
+- [http://127.0.0.1:5173](http://127.0.0.1:5173)
+
+The frontend reads its backend URL from `frontend/.env`:
+
+```text
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Make sure the FastAPI backend is running before starting the dashboard if you want live data.
 
 ## Running The Continuous Pipeline
 
@@ -238,6 +291,35 @@ curl http://127.0.0.1:8000/whale-alerts
 
 These same endpoints are easy to inspect in a browser or test in Postman.
 
+## Frontend Dashboard
+
+The new dashboard is intentionally simple and read-only:
+
+- left column: search/filter controls and market browser
+- right column: global signal feed, recent pipeline runs, and the selected market detail view
+
+The market detail view shows:
+
+- market question and summary stats
+- historical price chart from `/markets/{market_id}/history`
+- recent market-specific signals from `/markets/{market_id}/signals`
+- whale-alert placeholder state from `/whale-alerts`
+
+This gives the project a usable full-stack demo surface without skipping ahead into sentiment, auth, or write APIs.
+
+## Manual Demo Flow
+
+1. Run PostgreSQL locally and apply migrations.
+2. Start the backend with `uvicorn src.api:app --reload`.
+3. Start the scheduler or run one ingestion cycle:
+   - `python -m src.pipeline once`
+   - or `python -m src.pipeline serve`
+4. Start the frontend:
+   - `cd frontend`
+   - `npm run dev`
+5. Open the dashboard in your browser.
+6. Search for a market, click it, and inspect the chart, recent signals, whale placeholder, and run panel.
+
 ## Logging And Integrity Checks
 
 The Phase 2 pipeline logs:
@@ -283,7 +365,16 @@ The FastAPI layer is intentionally thin:
 .\venv\Scripts\python.exe -m pytest
 ```
 
-This now includes API tests for health, markets, history, signals, runs, filters, 404 behavior, and whale-alert placeholder responses.
+This includes the Python backend suite for ingestion, pipeline, signals, queries, and API behavior.
+
+Frontend tests run separately:
+
+```powershell
+cd frontend
+npm run test
+```
+
+The frontend test suite covers the app shell, market list rendering, search-driven refetch behavior, market detail loading, chart empty states, signal rendering, whale placeholder rendering, and fetch failure states.
 
 ## Configuration
 
@@ -317,7 +408,8 @@ Environment variables now include:
 - Scheduling is intentionally in-process and lightweight so the pipeline stays easy to explain in an interview.
 - Signal detection is also intentionally lightweight: clear thresholds, recent-vs-baseline comparisons, and explainable metadata instead of heavier statistical or ML models.
 - The backend API is read-only by design in this phase, so it stays focused on exposing the analytics system rather than becoming a full admin platform.
+- The frontend is also intentionally simple: plain `fetch`, one main dashboard view, lightweight CSS, and Recharts for one clear historical probability chart.
 
 ## Known Limitation
 
-The pipeline still ingests only Gamma `/events`. Signals are rule-based and intentionally simple, and whale alerts are currently an honest placeholder because trade ingestion is not active yet. Frontend work, sentiment/NLP, auth, deployment, and production infra remain deferred to later phases.
+The pipeline still ingests only Gamma `/events`. Signals are rule-based and intentionally simple, and whale alerts are currently an honest placeholder because trade ingestion is not active yet. Sentiment/NLP overlays, richer frontend interactions, auth, deployment, and production infra remain deferred to later phases.
