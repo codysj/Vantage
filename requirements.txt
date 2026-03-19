@@ -2,6 +2,8 @@ APScheduler==3.10.4
 alembic==1.16.5
 certifi==2026.2.25
 charset-normalizer==3.4.5
+fastapi==0.116.1
+httpx==0.28.1
 idna==3.11
 psycopg[binary]==3.2.12
 python-dateutil==2.9.0.post0
@@ -9,6 +11,7 @@ python-dotenv==1.1.1
 pytest==8.4.2
 requests==2.32.5
 SQLAlchemy==2.0.43
+uvicorn==0.35.0
 tzlocal==5.3.1
 tzdata==2025.3
 urllib3==2.6.3

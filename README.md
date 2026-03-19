@@ -1,18 +1,17 @@
-# Information Edge Phase 3: Signal Detection Layer
+# Information Edge Phase 4: Backend API
 
-This repo now covers Phase 1 through Phase 3 of Information Edge: it can fetch Polymarket events, normalize and store them in PostgreSQL, run a repeatable ingestion pipeline, and generate simple rule-based market signals from stored historical snapshots.
+This repo now covers Phase 1 through Phase 4 of Information Edge: it can fetch Polymarket events, store and analyze them, run a repeatable ingestion pipeline, generate signals, and expose the resulting market analytics through a read-only FastAPI backend.
 
-## What Phase 3 Adds
+## What Phase 4 Adds
 
-- Rule-based signal generation after successful ingestion
-- A new `signals` table for structured, queryable analytics output
-- Three initial signal types: price movement, volume spike, and liquidity shift
-- CLI queries for recent signals
-- Tests covering signal logic, signal storage, deduplication, and pipeline integration
+- A FastAPI app with Swagger docs at `/docs`
+- Read-only endpoints for markets, historical snapshots, signals, runs, and whale-alert placeholder responses
+- Typed response schemas for clean JSON output
+- Automated API tests with FastAPI `TestClient`
+- Browser/Postman-friendly local API demo support
 
 ## What Still Does Not Include
 
-- FastAPI endpoints
 - Frontend/dashboard work
 - Docker or deployment tooling
 - CI/CD automation
@@ -129,6 +128,19 @@ python -m src.pipeline once
 
 After a successful ingestion cycle, the pipeline now also computes and stores signals for markets touched in that run.
 
+## Running The API
+
+Start the FastAPI backend locally:
+
+```powershell
+uvicorn src.api:app --reload
+```
+
+Then open:
+
+- [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+
 ## Running The Continuous Pipeline
 
 Start the local scheduler service:
@@ -198,6 +210,34 @@ python -m src.queries signals --limit 10 --signal-type price_movement
 python -m src.queries signals --limit 10 --market-id <MARKET_ID>
 ```
 
+## API Endpoints
+
+Core read endpoints now include:
+
+- `GET /health`
+- `GET /markets`
+- `GET /markets/{market_id}`
+- `GET /markets/{market_id}/history`
+- `GET /markets/{market_id}/signals`
+- `GET /signals`
+- `GET /runs`
+- `GET /runs/{run_id}`
+- `GET /whale-alerts`
+
+Useful example requests:
+
+```powershell
+curl http://127.0.0.1:8000/health
+curl "http://127.0.0.1:8000/markets?limit=10&active=true"
+curl http://127.0.0.1:8000/markets/market-1
+curl http://127.0.0.1:8000/markets/market-1/history
+curl "http://127.0.0.1:8000/signals?signal_type=price_movement"
+curl http://127.0.0.1:8000/runs
+curl http://127.0.0.1:8000/whale-alerts
+```
+
+These same endpoints are easy to inspect in a browser or test in Postman.
+
 ## Logging And Integrity Checks
 
 The Phase 2 pipeline logs:
@@ -228,11 +268,22 @@ Signals are intentionally simple and rule-based in Phase 3:
 
 Signals are generated from stored `market_snapshots`, not external APIs. They are deduplicated by `(market_id, signal_type, snapshot_id)` so reruns do not spam duplicate rows for the same triggering snapshot.
 
+## Backend API Design
+
+The FastAPI layer is intentionally thin:
+
+- route handlers stay read-only
+- SQLAlchemy sessions are injected with one simple dependency
+- the existing query layer is reused and lightly extended for API list/detail shapes
+- Pydantic response schemas keep JSON clean and frontend-friendly
+
 ## Running Tests
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest
 ```
+
+This now includes API tests for health, markets, history, signals, runs, filters, 404 behavior, and whale-alert placeholder responses.
 
 ## Configuration
 
@@ -265,7 +316,8 @@ Environment variables now include:
 - The code favors small helper functions and explicit data flow over framework-heavy abstractions.
 - Scheduling is intentionally in-process and lightweight so the pipeline stays easy to explain in an interview.
 - Signal detection is also intentionally lightweight: clear thresholds, recent-vs-baseline comparisons, and explainable metadata instead of heavier statistical or ML models.
+- The backend API is read-only by design in this phase, so it stays focused on exposing the analytics system rather than becoming a full admin platform.
 
 ## Known Limitation
 
-The pipeline still ingests only Gamma `/events`. Signals are rule-based and intentionally simple; they are not yet anomaly models, whale detectors, trading agents, or NLP-driven insights. The `trades` table still exists as a placeholder and is not populated by the current pipeline.
+The pipeline still ingests only Gamma `/events`. Signals are rule-based and intentionally simple, and whale alerts are currently an honest placeholder because trade ingestion is not active yet. Frontend work, sentiment/NLP, auth, deployment, and production infra remain deferred to later phases.

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from src.db import SessionLocal
-from src.models import Event, IngestionRun, Market, MarketSnapshot, Signal
+from src.models import Event, IngestionRun, Market, MarketOutcome, MarketSnapshot, Signal
 
 
 def list_markets(session: Session) -> list[Market]:
@@ -15,9 +16,76 @@ def list_markets(session: Session) -> list[Market]:
     return list(session.execute(stmt).scalars().all())
 
 
+def get_markets_for_api(
+    session: Session,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    slug: str | None = None,
+    active: bool | None = None,
+    closed: bool | None = None,
+    q: str | None = None,
+) -> list[tuple[Market, MarketSnapshot | None]]:
+    latest_snapshot_subquery = (
+        select(
+            MarketSnapshot.market_id.label("market_id"),
+            func.max(MarketSnapshot.observed_at).label("max_observed_at"),
+        )
+        .group_by(MarketSnapshot.market_id)
+        .subquery()
+    )
+    stmt = (
+        select(Market, MarketSnapshot)
+        .outerjoin(latest_snapshot_subquery, latest_snapshot_subquery.c.market_id == Market.id)
+        .outerjoin(
+            MarketSnapshot,
+            (MarketSnapshot.market_id == latest_snapshot_subquery.c.market_id)
+            & (MarketSnapshot.observed_at == latest_snapshot_subquery.c.max_observed_at),
+        )
+        .join(Event, Market.event_id == Event.id)
+    )
+    if slug:
+        stmt = stmt.where(Market.slug == slug)
+    if active is not None:
+        stmt = stmt.where(Market.active == active)
+    if closed is not None:
+        stmt = stmt.where(Market.closed == closed)
+    if q:
+        pattern = f"%{q}%"
+        stmt = stmt.where(
+            or_(
+                Market.slug.ilike(pattern),
+                Market.question.ilike(pattern),
+                Event.title.ilike(pattern),
+                Event.question.ilike(pattern),
+            )
+        )
+    stmt = stmt.order_by(Market.slug.is_(None), Market.slug, Market.market_id).limit(limit).offset(offset)
+    return list(session.execute(stmt).all())
+
+
 def get_market_by_api_id(session: Session, market_id: str) -> Market | None:
     stmt = select(Market).where(Market.market_id == market_id)
     return session.execute(stmt).scalar_one_or_none()
+
+
+def get_market_detail_for_api(
+    session: Session, market_id: str
+) -> tuple[Market, Event, MarketSnapshot | None, list[MarketOutcome]] | None:
+    market = session.execute(
+        select(Market)
+        .options(joinedload(Market.event), joinedload(Market.outcomes))
+        .where(Market.market_id == market_id)
+    ).unique().scalar_one_or_none()
+    if market is None:
+        return None
+    latest_snapshot = session.execute(
+        select(MarketSnapshot)
+        .where(MarketSnapshot.market_id == market.id)
+        .order_by(MarketSnapshot.observed_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return market, market.event, latest_snapshot, list(market.outcomes)
 
 
 def get_market_by_slug(session: Session, slug: str) -> Market | None:
@@ -25,13 +93,22 @@ def get_market_by_slug(session: Session, slug: str) -> Market | None:
     return session.execute(stmt).scalar_one_or_none()
 
 
-def get_market_history(session: Session, market_id: str) -> list[MarketSnapshot]:
-    stmt = (
-        select(MarketSnapshot)
-        .join(Market)
-        .where(Market.market_id == market_id)
-        .order_by(MarketSnapshot.observed_at.asc())
-    )
+def get_market_history(
+    session: Session,
+    market_id: str,
+    *,
+    limit: int | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> list[MarketSnapshot]:
+    stmt = select(MarketSnapshot).join(Market).where(Market.market_id == market_id)
+    if start_time is not None:
+        stmt = stmt.where(MarketSnapshot.observed_at >= start_time)
+    if end_time is not None:
+        stmt = stmt.where(MarketSnapshot.observed_at <= end_time)
+    stmt = stmt.order_by(MarketSnapshot.observed_at.asc())
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(session.execute(stmt).scalars().all())
 
 
@@ -70,6 +147,10 @@ def get_recent_ingestion_runs(session: Session, limit: int = 10) -> list[Ingesti
     return list(session.execute(stmt).scalars().all())
 
 
+def get_ingestion_run_by_id(session: Session, run_id: int) -> IngestionRun | None:
+    return session.get(IngestionRun, run_id)
+
+
 def get_recent_signals(
     session: Session,
     limit: int = 10,
@@ -83,6 +164,15 @@ def get_recent_signals(
         stmt = stmt.where(Market.market_id == market_id)
     stmt = stmt.order_by(Signal.detected_at.desc()).limit(limit)
     return list(session.execute(stmt).all())
+
+
+def get_market_signals(
+    session: Session,
+    market_id: str,
+    *,
+    limit: int = 10,
+) -> list[tuple[Signal, Market]]:
+    return get_recent_signals(session, limit=limit, market_id=market_id)
 
 
 def build_parser() -> argparse.ArgumentParser:
