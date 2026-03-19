@@ -74,6 +74,10 @@ export type SignalItem = {
   id: number;
   market_id: string;
   event_id: string;
+  market_question: string | null;
+  market_slug: string | null;
+  market_active: boolean | null;
+  market_closed: boolean | null;
   signal_type: string;
   signal_strength: number;
   detected_at: string;

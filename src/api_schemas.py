@@ -88,6 +88,10 @@ class SignalResponse(BaseModel):
     id: int
     market_id: str
     event_id: str
+    market_question: str | None = None
+    market_slug: str | None = None
+    market_active: bool | None = None
+    market_closed: bool | None = None
     signal_type: str
     signal_strength: float
     detected_at: datetime

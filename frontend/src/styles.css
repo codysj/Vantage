@@ -301,6 +301,56 @@ input {
   color: #4b6079;
 }
 
+.signal-card {
+  width: 100%;
+  text-align: left;
+}
+
+.signal-card-clickable {
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.signal-card-clickable:hover {
+  border-color: #0f5cc0;
+  background: #eef5ff;
+  box-shadow: 0 8px 20px rgba(25, 73, 131, 0.08);
+  transform: translateY(-1px);
+}
+
+.signal-card-selected {
+  border-color: #0f5cc0;
+  background: #edf4ff;
+}
+
+.signal-market-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.signal-market-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.signal-market-title {
+  font-weight: 700;
+  color: #122033;
+}
+
+.signal-market-subtitle {
+  color: #5f748d;
+  font-size: 0.9rem;
+}
+
 .signal-type {
   font-weight: 700;
   text-transform: capitalize;
@@ -353,7 +403,8 @@ input {
   .market-row-meta,
   .run-card-main,
   .run-card-meta,
-  .signal-card-main {
+  .signal-card-main,
+  .signal-market-row {
     flex-direction: column;
     align-items: flex-start;
   }

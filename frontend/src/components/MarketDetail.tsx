@@ -132,6 +132,7 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
         signals={signals}
         title="Recent Signals"
         emptyMessage="No recent signals for this market."
+        showMarketContext={false}
       />
 
       <WhaleAlertsPanel />

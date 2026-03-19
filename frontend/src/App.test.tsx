@@ -22,10 +22,21 @@ const marketsResponse = {
       latest_volume: 150,
       latest_snapshot_at: "2026-03-18T12:00:00Z",
     },
+    {
+      market_id: "market-2",
+      event_id: "event-2",
+      slug: "will-cpi-rise-april",
+      question: "Will CPI rise in April?",
+      active: true,
+      closed: false,
+      latest_price: 0.61,
+      latest_volume: 210,
+      latest_snapshot_at: "2026-03-18T12:05:00Z",
+    },
   ],
   limit: 20,
   offset: 0,
-  count: 1,
+  count: 2,
 };
 
 const marketDetailResponse = {
@@ -46,6 +57,28 @@ const marketDetailResponse = {
     last_trade_price: 0.43,
     volume: 150,
     liquidity: 200,
+  },
+  outcomes: [],
+};
+
+const secondMarketDetailResponse = {
+  market_id: "market-2",
+  event_id: "2",
+  event_api_id: "event-2",
+  slug: "will-cpi-rise-april",
+  question: "Will CPI rise in April?",
+  description: "Inflation market",
+  resolution_source: null,
+  market_type: null,
+  active: true,
+  closed: false,
+  archived: false,
+  restricted: false,
+  latest_snapshot: {
+    observed_at: "2026-03-18T12:05:00Z",
+    last_trade_price: 0.61,
+    volume: 210,
+    liquidity: 140,
   },
   outcomes: [],
 };
@@ -71,15 +104,33 @@ const signalsResponse = {
       id: 1,
       market_id: "market-1",
       event_id: "event-1",
+      market_question: "Will the Fed cut rates in June?",
+      market_slug: "will-fed-cut-rates-june",
+      market_active: true,
+      market_closed: false,
       signal_type: "price_movement",
       signal_strength: 0.2,
       detected_at: "2026-03-18T12:00:00Z",
       summary: "Price moved 20%",
       metadata: { summary: "Price moved 20%" },
     },
+    {
+      id: 2,
+      market_id: "market-2",
+      event_id: "event-2",
+      market_question: "Will CPI rise in April?",
+      market_slug: "will-cpi-rise-april",
+      market_active: true,
+      market_closed: false,
+      signal_type: "volume_spike",
+      signal_strength: 3.4,
+      detected_at: "2026-03-18T12:05:00Z",
+      summary: "Volume jumped versus baseline",
+      metadata: { summary: "Volume jumped versus baseline" },
+    },
   ],
   limit: 10,
-  count: 1,
+  count: 2,
 };
 
 const runsResponse = {
@@ -135,6 +186,11 @@ function installFetchMock(overrides?: {
         new Response(JSON.stringify(marketDetailResponse), { status: 200 }),
       );
     }
+    if (url.endsWith("/markets/market-2")) {
+      return Promise.resolve(
+        new Response(JSON.stringify(secondMarketDetailResponse), { status: 200 }),
+      );
+    }
     if (url.includes("/markets/market-1/history")) {
       return Promise.resolve(
         new Response(
@@ -143,9 +199,57 @@ function installFetchMock(overrides?: {
         ),
       );
     }
+    if (url.includes("/markets/market-2/history")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            market_id: "market-2",
+            items: [
+              {
+                observed_at: "2026-03-18T12:00:00Z",
+                last_trade_price: 0.55,
+                best_bid: 0.54,
+                best_ask: 0.56,
+                volume: 130,
+                liquidity: 130,
+              },
+            ],
+            count: 1,
+          }),
+          { status: 200 },
+        ),
+      );
+    }
     if (url.includes("/markets/market-1/signals")) {
       return Promise.resolve(
         new Response(JSON.stringify(overrides?.signals ?? signalsResponse), { status: 200 }),
+      );
+    }
+    if (url.includes("/markets/market-2/signals")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: 22,
+                market_id: "market-2",
+                event_id: "event-2",
+                market_question: "Will CPI rise in April?",
+                market_slug: "will-cpi-rise-april",
+                market_active: true,
+                market_closed: false,
+                signal_type: "volume_spike",
+                signal_strength: 3.4,
+                detected_at: "2026-03-18T12:05:00Z",
+                summary: "Volume jumped versus baseline",
+                metadata: { summary: "Volume jumped versus baseline" },
+              },
+            ],
+            limit: 10,
+            count: 1,
+          }),
+          { status: 200 },
+        ),
       );
     }
     if (url.includes("/signals?")) {
@@ -183,9 +287,24 @@ describe("App", () => {
 
     await screen.findByText("Will the Fed cut rates in June?");
     expect(screen.getByText("Price moved 20%")).toBeInTheDocument();
+    expect(screen.getByText("Will CPI rise in April?")).toBeInTheDocument();
     expect(
       screen.getByText("Trade ingestion is not active yet; whale alerts are deferred."),
     ).toBeInTheDocument();
+  });
+
+  it("clicking a signal selects that market and updates the detail panel", async () => {
+    installFetchMock();
+
+    render(<App />);
+
+    await screen.findByText("Will CPI rise in April?");
+
+    fireEvent.click(screen.getByRole("button", { name: /Will CPI rise in April\?/i }));
+
+    await screen.findAllByText("Will CPI rise in April?");
+    expect(screen.getByText("Inflation market")).toBeInTheDocument();
+    expect(screen.getByText("Volume jumped versus baseline")).toBeInTheDocument();
   });
 
   it("updates search input and refetches market list", async () => {

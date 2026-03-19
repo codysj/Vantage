@@ -226,6 +226,9 @@ export default function App() {
               signals={signals}
               title="Interesting Right Now"
               emptyMessage={signalsError ?? "No recent signals across markets."}
+              onSelectMarket={setSelectedMarketId}
+              selectedMarketId={selectedMarketId}
+              showMarketContext
             />
             <RunsPanel runs={runs} loading={runsLoading} error={runsError} />
           </div>

@@ -41,6 +41,8 @@ def seed_market_data(session_factory) -> None:
     payload["markets"][0]["lastTradePrice"] = "0.43"
     payload["markets"][0]["volume"] = "150"
     payload["markets"][0]["liquidity"] = "20"
+    payload["markets"][0]["active"] = True
+    payload["markets"][0]["closed"] = False
     with session_factory() as session:
         with session.begin():
             persist_events(session, [payload], observed_at=datetime(2026, 3, 18, tzinfo=timezone.utc))
@@ -131,6 +133,10 @@ def test_signals_endpoints() -> None:
     assert signals.status_code == 200
     assert signals.json()["count"] == 1
     assert signals.json()["items"][0]["signal_type"] == "price_movement"
+    assert signals.json()["items"][0]["market_question"] == "Will the Fed cut rates in June?"
+    assert signals.json()["items"][0]["market_slug"] == "will-fed-cut-rates-june"
+    assert signals.json()["items"][0]["market_active"] is True
+    assert signals.json()["items"][0]["market_closed"] is False
     assert market_signals.status_code == 200
     assert market_signals.json()["count"] == 1
     app.dependency_overrides.clear()

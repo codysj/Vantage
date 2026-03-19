@@ -79,11 +79,15 @@ def _snapshot_summary(snapshot: MarketSnapshot | None) -> SnapshotSummary | None
     )
 
 
-def _signal_response(signal: Signal, market_api_id: str, event_api_id: str) -> SignalResponse:
+def _signal_response(signal: Signal, market) -> SignalResponse:
     return SignalResponse(
         id=signal.id,
-        market_id=market_api_id,
-        event_id=event_api_id,
+        market_id=market.market_id,
+        event_id=market.event.event_id,
+        market_question=market.question,
+        market_slug=market.slug,
+        market_active=market.active,
+        market_closed=market.closed,
         signal_type=signal.signal_type,
         signal_strength=float(signal.signal_strength),
         detected_at=signal.detected_at,
@@ -250,7 +254,7 @@ def get_market_signals_api(
     if detail is None:
         raise HTTPException(status_code=404, detail="Market not found.")
     rows = get_market_signals(db, market_id, limit=limit)
-    items = [_signal_response(signal, market.market_id, market.event.event_id) for signal, market in rows]
+    items = [_signal_response(signal, market) for signal, market in rows]
     return SignalListResponse(items=items, limit=limit, count=len(items))
 
 
@@ -262,7 +266,7 @@ def get_signals_api(
     db: Session = Depends(get_db),
 ) -> SignalListResponse:
     rows = get_recent_signals(db, limit=limit, signal_type=signal_type, market_id=market_id)
-    items = [_signal_response(signal, market.market_id, market.event.event_id) for signal, market in rows]
+    items = [_signal_response(signal, market) for signal, market in rows]
     return SignalListResponse(items=items, limit=limit, count=len(items))
 
 
