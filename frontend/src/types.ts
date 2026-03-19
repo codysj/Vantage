@@ -11,6 +11,7 @@ export type MarketSummary = {
   question: string | null;
   category: string | null;
   has_signals: boolean;
+  has_whales: boolean;
   active: boolean | null;
   closed: boolean | null;
   latest_price: number | null;
@@ -116,8 +117,43 @@ export type RunListResponse = {
   count: number;
 };
 
+export type WhaleEvent = {
+  id: number;
+  market_id: string;
+  event_id: string;
+  market_question: string | null;
+  market_slug: string | null;
+  detected_at: string;
+  trade_size: number;
+  whale_score: number;
+  median_multiple: number | null;
+  side: string | null;
+  outcome_label: string | null;
+  proxy_wallet: string | null;
+  detection_method: string;
+  summary: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type WhaleListResponse = {
+  items: WhaleEvent[];
+  limit: number;
+  count: number;
+};
+
+export type WhaleSummary = {
+  market_id: string;
+  total_whale_events: number;
+  most_recent_whale_at: string | null;
+  largest_whale_trade: number | null;
+  average_whale_score: number | null;
+  whale_events_24h: number;
+  whale_events_7d: number;
+  has_recent_whale_activity: boolean;
+};
+
 export type WhaleAlertsResponse = {
   status: string;
   message: string;
-  alerts: Array<Record<string, unknown>>;
+  alerts: WhaleEvent[];
 };

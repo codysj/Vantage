@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from src.api import app, get_db
 from src.models import Base
-from src.models import IngestionRun, Signal
+from src.models import IngestionRun, Signal, Trade, WhaleEvent
 from src.queries import get_market_by_api_id, get_market_history
 from tests.test_normalize import sample_event_payload
 from src.ingest import persist_events
@@ -44,6 +44,7 @@ def seed_market_data(session_factory) -> None:
     payload["markets"][0]["liquidity"] = "20"
     payload["markets"][0]["active"] = True
     payload["markets"][0]["closed"] = False
+    payload["markets"][0]["conditionId"] = "cond-1"
     second_payload = {
         "id": "event-2",
         "slug": "btc-market",
@@ -57,6 +58,7 @@ def seed_market_data(session_factory) -> None:
                 "id": "market-2",
                 "slug": "will-btc-rally-this-week",
                 "question": "Will BTC rally this week?",
+                "conditionId": "cond-2",
                 "outcomes": "[\"Yes\", \"No\"]",
                 "outcomePrices": "[\"0.51\", \"0.49\"]",
                 "clobTokenIds": "[\"btc-yes\", \"btc-no\"]",
@@ -78,6 +80,22 @@ def seed_market_data(session_factory) -> None:
             )
         market = get_market_by_api_id(session, "market-1")
         snapshot = get_market_history(session, "market-1")[0]
+        trade = Trade(
+            market_id=market.id,
+            external_trade_id="trade-1",
+            side="BUY",
+            price=Decimal("0.62"),
+            size=Decimal("1000"),
+            trade_size=Decimal("620"),
+            proxy_wallet="0xabc",
+            outcome_label="Yes",
+            outcome_index=0,
+            transaction_hash="0xhash",
+            executed_at=snapshot.observed_at,
+            raw_json={"conditionId": "cond-1"},
+        )
+        session.add(trade)
+        session.flush()
         session.add(
             Signal(
                 market_id=market.id,
@@ -87,6 +105,27 @@ def seed_market_data(session_factory) -> None:
                 signal_strength=Decimal("0.20"),
                 metadata_json={"summary": "Price moved 20%"},
                 detected_at=snapshot.observed_at,
+            )
+        )
+        session.add(
+            WhaleEvent(
+                market_id=market.id,
+                trade_id=trade.id,
+                detected_at=snapshot.observed_at,
+                trade_size=Decimal("620"),
+                baseline_mean_size=Decimal("120"),
+                baseline_median_size=Decimal("75"),
+                baseline_std_size=Decimal("50"),
+                median_multiple=Decimal("8.26666667"),
+                whale_score=Decimal("10"),
+                detection_method="market_local_baseline",
+                metadata_json={
+                    "summary": "Whale trade 8.27x median notional",
+                    "median_multiple": 8.27,
+                    "side": "BUY",
+                    "outcome_label": "Yes",
+                    "proxy_wallet": "0xabc",
+                },
             )
         )
         session.add(
@@ -133,8 +172,11 @@ def test_markets_endpoints() -> None:
     assert list_response.json()["count"] == 2
     assert list_response.json()["available_categories"] == ["Crypto", "Economy"]
     signal_flags = {item["market_id"]: item["has_signals"] for item in list_response.json()["items"]}
+    whale_flags = {item["market_id"]: item["has_whales"] for item in list_response.json()["items"]}
     assert signal_flags["market-1"] is True
     assert signal_flags["market-2"] is False
+    assert whale_flags["market-1"] is True
+    assert whale_flags["market-2"] is False
     assert detail_response.status_code == 200
     assert detail_response.json()["market_id"] == "market-1"
     assert history_response.status_code == 200
@@ -151,6 +193,7 @@ def test_markets_filter_and_404() -> None:
     category_filtered = client.get("/markets", params={"category": "Economy"})
     has_signals_filtered = client.get("/markets", params={"has_signals": "true"})
     signal_type_filtered = client.get("/markets", params={"signal_type": "price_movement"})
+    whale_type_filtered = client.get("/markets", params={"signal_type": "whale"})
     missing = client.get("/markets/does-not-exist")
 
     assert filtered.status_code == 200
@@ -163,6 +206,9 @@ def test_markets_filter_and_404() -> None:
     assert signal_type_filtered.status_code == 200
     assert signal_type_filtered.json()["count"] == 1
     assert signal_type_filtered.json()["items"][0]["market_id"] == "market-1"
+    assert whale_type_filtered.status_code == 200
+    assert whale_type_filtered.json()["count"] == 1
+    assert whale_type_filtered.json()["items"][0]["market_id"] == "market-1"
     assert missing.status_code == 404
     app.dependency_overrides.clear()
 
@@ -183,7 +229,11 @@ def test_signals_endpoints() -> None:
     assert signals.json()["items"][0]["market_active"] is True
     assert signals.json()["items"][0]["market_closed"] is False
     assert market_signals.status_code == 200
-    assert market_signals.json()["count"] == 1
+    assert market_signals.json()["count"] == 2
+    whale_feed = client.get("/signals", params={"signal_type": "whale"})
+    assert whale_feed.status_code == 200
+    assert whale_feed.json()["count"] == 1
+    assert whale_feed.json()["items"][0]["signal_type"] == "whale"
     app.dependency_overrides.clear()
 
 
@@ -205,12 +255,37 @@ def test_runs_endpoints() -> None:
 
 
 def test_whale_alerts_endpoint() -> None:
-    client = create_test_client(create_api_session_factory())
+    session_factory = create_api_session_factory()
+    seed_market_data(session_factory)
+    client = create_test_client(session_factory)
 
     response = client.get("/whale-alerts")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "unavailable"
-    assert body["alerts"] == []
+    assert body["status"] == "ok"
+    assert body["alerts"][0]["market_id"] == "market-1"
+    assert "Whale trade" in body["alerts"][0]["summary"]
+    app.dependency_overrides.clear()
+
+
+def test_whale_endpoints() -> None:
+    session_factory = create_api_session_factory()
+    seed_market_data(session_factory)
+    client = create_test_client(session_factory)
+
+    recent = client.get("/whales/recent")
+    market_whales = client.get("/markets/market-1/whales")
+    summary = client.get("/markets/market-1/whale-summary")
+    missing = client.get("/markets/does-not-exist/whale-summary")
+
+    assert recent.status_code == 200
+    assert recent.json()["count"] == 1
+    assert recent.json()["items"][0]["trade_size"] == 620.0
+    assert market_whales.status_code == 200
+    assert market_whales.json()["count"] == 1
+    assert summary.status_code == 200
+    assert summary.json()["total_whale_events"] == 1
+    assert summary.json()["has_recent_whale_activity"] is True
+    assert missing.status_code == 404
     app.dependency_overrides.clear()

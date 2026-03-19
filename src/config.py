@@ -48,9 +48,15 @@ class Settings:
         "POLYMARKET_BASE_URL", "https://gamma-api.polymarket.com"
     ).rstrip("/")
     polymarket_events_path: str = os.getenv("POLYMARKET_EVENTS_PATH", "/events")
+    polymarket_trades_base_url: str = os.getenv(
+        "POLYMARKET_TRADES_BASE_URL", "https://data-api.polymarket.com"
+    ).rstrip("/")
+    polymarket_trades_path: str = os.getenv("POLYMARKET_TRADES_PATH", "/trades")
     polymarket_active: bool = _get_bool("POLYMARKET_ACTIVE", True)
     polymarket_closed: bool = _get_bool("POLYMARKET_CLOSED", False)
     polymarket_limit: int = _get_int("POLYMARKET_LIMIT", 50)
+    polymarket_trades_limit: int = _get_int("POLYMARKET_TRADES_LIMIT", 500)
+    polymarket_trades_batch_size: int = _get_int("POLYMARKET_TRADES_BATCH_SIZE", 25)
     polymarket_timeout_seconds: int = _get_int("POLYMARKET_TIMEOUT_SECONDS", 15)
     pipeline_interval_seconds: int = _get_int("PIPELINE_INTERVAL_SECONDS", 300)
     pipeline_log_level: str = _get_str("PIPELINE_LOG_LEVEL", "INFO").upper()
@@ -65,6 +71,15 @@ class Settings:
     signal_volume_multiplier: Decimal = _get_decimal("SIGNAL_VOLUME_MULTIPLIER", "3.0")
     signal_liquidity_threshold: Decimal = _get_decimal("SIGNAL_LIQUIDITY_THRESHOLD", "0.20")
     signal_lookback_window_minutes: int = _get_int("SIGNAL_LOOKBACK_WINDOW_MINUTES", 30)
+    whale_min_history_count: int = _get_int("WHALE_MIN_HISTORY_COUNT", 20)
+    whale_baseline_trade_count: int = _get_int("WHALE_BASELINE_TRADE_COUNT", 100)
+    whale_zscore_threshold: Decimal = _get_decimal("WHALE_ZSCORE_THRESHOLD", "3.0")
+    whale_median_multiplier_threshold: Decimal = _get_decimal(
+        "WHALE_MEDIAN_MULTIPLIER_THRESHOLD", "5.0"
+    )
+    whale_absolute_min_notional: Decimal = _get_decimal(
+        "WHALE_ABSOLUTE_MIN_NOTIONAL", "250"
+    )
     api_cors_origins: str = _get_str(
         "API_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
     )
@@ -72,6 +87,10 @@ class Settings:
     @property
     def polymarket_events_url(self) -> str:
         return f"{self.polymarket_base_url}{self.polymarket_events_path}"
+
+    @property
+    def polymarket_trades_url(self) -> str:
+        return f"{self.polymarket_trades_base_url}{self.polymarket_trades_path}"
 
     @property
     def api_cors_origin_list(self) -> list[str]:

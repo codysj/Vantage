@@ -5,7 +5,9 @@ import type {
   RunListResponse,
   SignalListResponse,
   SnapshotHistoryResponse,
+  WhaleListResponse,
   WhaleAlertsResponse,
+  WhaleSummary,
 } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -87,6 +89,26 @@ export function getSignals(params: {
   market_id?: string;
 }) {
   return fetchJson<SignalListResponse>("/signals", params);
+}
+
+export function getRecentWhales(params: {
+  limit?: number;
+  category?: string;
+  min_score?: number;
+  market_id?: string;
+}) {
+  return fetchJson<WhaleListResponse>("/whales/recent", params);
+}
+
+export function getMarketWhales(
+  marketId: string,
+  params: { limit?: number },
+) {
+  return fetchJson<WhaleListResponse>(`/markets/${marketId}/whales`, params);
+}
+
+export function getMarketWhaleSummary(marketId: string) {
+  return fetchJson<WhaleSummary>(`/markets/${marketId}/whale-summary`);
 }
 
 export function getRuns(params: { limit?: number }) {

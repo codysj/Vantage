@@ -117,7 +117,7 @@ export function SignalList({
                   <span
                     className={`signal-strength signal-strength-pill signal-strength-${strengthTier}`}
                   >
-                    {strengthTier} · {signal.signal_strength.toFixed(2)}
+                    {strengthTier} - {signal.signal_strength.toFixed(2)}
                   </span>
                 </div>
                 <p className="signal-summary">{signal.summary ?? "No summary available."}</p>

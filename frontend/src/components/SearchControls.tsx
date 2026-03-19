@@ -68,6 +68,7 @@ export function SearchControls({
             <option value="price_movement">price_movement</option>
             <option value="volume_spike">volume_spike</option>
             <option value="liquidity_shift">liquidity_shift</option>
+            <option value="whale">whale</option>
           </select>
         </label>
       </div>

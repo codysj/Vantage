@@ -61,6 +61,9 @@ export function MarketList({
                   {market.has_signals ? (
                     <span className="signal-presence-badge">Signals</span>
                   ) : null}
+                  {market.has_whales ? (
+                    <span className="whale-presence-badge">Whales</span>
+                  ) : null}
                   <span
                     className={
                       market.closed

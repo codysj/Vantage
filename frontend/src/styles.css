@@ -242,7 +242,8 @@ select {
 }
 
 .market-category-badge,
-.signal-presence-badge {
+.signal-presence-badge,
+.whale-presence-badge {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
@@ -259,6 +260,11 @@ select {
 .signal-presence-badge {
   background: #e8f1ff;
   color: #0f5cc0;
+}
+
+.whale-presence-badge {
+  background: #fff2df;
+  color: #a45a00;
 }
 
 .status-badge {
@@ -536,6 +542,18 @@ select {
   flex-wrap: wrap;
 }
 
+.whale-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.whale-card {
+  border-color: #ecd9bb;
+  background: #fffaf2;
+}
+
 .chart-shell {
   width: 100%;
   height: 280px;
@@ -556,7 +574,8 @@ select {
   .dashboard-layout,
   .top-grid,
   .detail-stats,
-  .status-metric-grid {
+  .status-metric-grid,
+  .whale-summary-grid {
     grid-template-columns: 1fr;
   }
 }

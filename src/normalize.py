@@ -176,6 +176,84 @@ def build_snapshot_key(
     return f"{market_api_id}:hash:{digest}"
 
 
+def parse_unix_timestamp(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return parse_datetime(value)
+    try:
+        numeric_value = int(value)
+    except (TypeError, ValueError):
+        return parse_datetime(value)
+    if numeric_value > 1_000_000_000_000:
+        numeric_value = numeric_value // 1000
+    return datetime.fromtimestamp(numeric_value, tz=timezone.utc)
+
+
+def build_trade_key(
+    condition_id: str,
+    executed_at: datetime | None,
+    side: str | None,
+    price: Decimal | None,
+    size: Decimal | None,
+    outcome_index: int | None,
+    transaction_hash: str | None,
+) -> str:
+    stable_payload = {
+        "condition_id": condition_id,
+        "executed_at": executed_at.isoformat() if executed_at else None,
+        "side": side,
+        "price": str(price) if price is not None else None,
+        "size": str(size) if size is not None else None,
+        "outcome_index": outcome_index,
+        "transaction_hash": transaction_hash,
+    }
+    stable_json = json.dumps(stable_payload, sort_keys=True)
+    digest = hashlib.sha256(stable_json.encode("utf-8")).hexdigest()
+    return f"trade:{digest}"
+
+
+def normalize_trade(trade_payload: dict[str, Any]) -> dict[str, Any]:
+    condition_id = get_first(trade_payload, "conditionId", "condition_id")
+    if condition_id in (None, ""):
+        raise ValueError("Trade payload is missing conditionId.")
+
+    price = parse_decimal(get_first(trade_payload, "price"))
+    size = parse_decimal(get_first(trade_payload, "size"))
+    trade_size = price * size if price is not None and size is not None else None
+    executed_at = parse_unix_timestamp(get_first(trade_payload, "timestamp", "executed_at"))
+    outcome_index_raw = get_first(trade_payload, "outcomeIndex", "outcome_index")
+    try:
+        outcome_index = int(outcome_index_raw) if outcome_index_raw is not None else None
+    except (TypeError, ValueError):
+        outcome_index = None
+
+    transaction_hash = get_first(trade_payload, "transactionHash", "transaction_hash")
+    side = get_first(trade_payload, "side")
+    return {
+        "condition_id": str(condition_id),
+        "external_trade_id": build_trade_key(
+            str(condition_id),
+            executed_at,
+            str(side) if side is not None else None,
+            price,
+            size,
+            outcome_index,
+            str(transaction_hash) if transaction_hash is not None else None,
+        ),
+        "side": str(side) if side is not None else None,
+        "price": price,
+        "size": size,
+        "trade_size": trade_size,
+        "proxy_wallet": get_first(trade_payload, "proxyWallet", "proxy_wallet"),
+        "outcome_label": get_first(trade_payload, "outcome", "outcome_label"),
+        "outcome_index": outcome_index,
+        "transaction_hash": str(transaction_hash) if transaction_hash is not None else None,
+        "executed_at": executed_at,
+        "raw_json": trade_payload,
+    }
+
+
 def normalize_event(event_payload: dict[str, Any], observed_at: datetime) -> dict[str, Any]:
     raw_event_id = get_first(event_payload, "id", "eventId")
     if raw_event_id in (None, ""):

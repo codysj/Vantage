@@ -162,7 +162,7 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
         showMarketContext={false}
       />
 
-      <WhaleAlertsPanel />
+      <WhaleAlertsPanel marketId={market.market_id} />
     </div>
   );
 }

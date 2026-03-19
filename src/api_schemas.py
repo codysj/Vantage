@@ -32,6 +32,7 @@ class MarketSummary(BaseModel):
     question: str | None = None
     category: str | None = None
     has_signals: bool = False
+    has_whales: bool = False
     active: bool | None = None
     closed: bool | None = None
     latest_price: float | None = None
@@ -130,7 +131,42 @@ class RunListResponse(BaseModel):
     count: int
 
 
+class WhaleEventResponse(BaseModel):
+    id: int
+    market_id: str
+    event_id: str
+    market_question: str | None = None
+    market_slug: str | None = None
+    detected_at: datetime
+    trade_size: float
+    whale_score: float
+    median_multiple: float | None = None
+    side: str | None = None
+    outcome_label: str | None = None
+    proxy_wallet: str | None = None
+    detection_method: str
+    summary: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WhaleListResponse(BaseModel):
+    items: list[WhaleEventResponse]
+    limit: int
+    count: int
+
+
+class WhaleSummaryResponse(BaseModel):
+    market_id: str
+    total_whale_events: int
+    most_recent_whale_at: datetime | None = None
+    largest_whale_trade: float | None = None
+    average_whale_score: float | None = None
+    whale_events_24h: int
+    whale_events_7d: int
+    has_recent_whale_activity: bool
+
+
 class WhaleAlertsResponse(BaseModel):
     status: str
     message: str
-    alerts: list[dict[str, Any]]
+    alerts: list[WhaleEventResponse]

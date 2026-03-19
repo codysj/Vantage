@@ -10,6 +10,7 @@ from sqlalchemy import insert, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.api_client import PolymarketClient
+from src.config import settings
 from src.db import SessionLocal
 from src.integrity import (
     run_post_write_checks,
@@ -17,10 +18,11 @@ from src.integrity import (
     validate_normalized_event,
 )
 from src.logging_config import configure_logging
-from src.models import Event, EventTag, Market, MarketOutcome, MarketSnapshot, Tag
-from src.normalize import normalize_event
+from src.models import Event, EventTag, Market, MarketOutcome, MarketSnapshot, Tag, Trade
+from src.normalize import normalize_event, normalize_trade
 from src.run_tracking import create_run, update_run
 from src.signals import generate_signals_for_snapshots
+from src.whales import generate_whales_for_trades
 
 
 logger = logging.getLogger(__name__)
@@ -43,11 +45,18 @@ class IngestionCycleSummary:
     error_message: str | None = None
     signals_generated: int = 0
     signals_skipped: int = 0
+    trades_fetched: int = 0
+    trades_inserted: int = 0
+    trades_skipped: int = 0
+    whales_generated: int = 0
+    whales_skipped: int = 0
     record_errors: list[str] = field(default_factory=list)
     integrity_messages: list[str] = field(default_factory=list)
     signal_messages: list[str] = field(default_factory=list)
     signal_type_counts: dict[str, int] = field(default_factory=dict)
     touched_snapshot_ids: set[int] = field(default_factory=set, repr=False)
+    touched_market_ids: set[int] = field(default_factory=set, repr=False)
+    touched_trade_ids: set[int] = field(default_factory=set, repr=False)
 
     def finish(self, *, status: str, error_message: str | None = None) -> None:
         self.status = status
@@ -64,7 +73,8 @@ class IngestionCycleSummary:
             f"events_upserted={self.events_upserted} markets_upserted={self.markets_upserted} "
             f"snapshots_inserted={self.snapshots_inserted} records_skipped={self.records_skipped} "
             f"integrity_errors={self.integrity_errors} signals_generated={self.signals_generated} "
-            f"signals_skipped={self.signals_skipped} duration_ms={self.duration_ms}"
+            f"signals_skipped={self.signals_skipped} trades_inserted={self.trades_inserted} "
+            f"whales_generated={self.whales_generated} duration_ms={self.duration_ms}"
         )
 
 
@@ -139,6 +149,20 @@ def insert_snapshot(session: Session, market: Market, snapshot_data: dict[str, A
     return snapshot, before_snapshot is None
 
 
+def upsert_trade(session: Session, market: Market, trade_data: dict[str, Any]) -> tuple[Trade, bool]:
+    before_trade = session.execute(
+        select(Trade).where(Trade.external_trade_id == trade_data["external_trade_id"])
+    ).scalar_one_or_none()
+    payload = dict(trade_data)
+    payload["market_id"] = market.id
+    payload.pop("condition_id", None)
+    _upsert(session, Trade, payload, ["external_trade_id"])
+    trade = session.execute(
+        select(Trade).where(Trade.external_trade_id == trade_data["external_trade_id"])
+    ).scalar_one()
+    return trade, before_trade is None
+
+
 def _log_record_issue(summary: IngestionCycleSummary, message: str) -> None:
     summary.record_errors.append(message)
     logger.warning(message)
@@ -194,9 +218,59 @@ def persist_events(
             upsert_market_outcomes(session, market, market_bundle["outcomes"])
             snapshot, inserted = insert_snapshot(session, market, market_bundle["snapshot"])
             active_summary.touched_snapshot_ids.add(snapshot.id)
+            active_summary.touched_market_ids.add(market.id)
             if inserted:
                 active_summary.snapshots_inserted += 1
             active_summary.markets_upserted += 1
+
+
+def _batched(values: list[str], batch_size: int) -> Iterable[list[str]]:
+    for index in range(0, len(values), batch_size):
+        yield values[index : index + batch_size]
+
+
+def fetch_trade_payloads_for_markets(
+    client: PolymarketClient,
+    markets: list[Market],
+) -> list[dict[str, Any]]:
+    condition_ids = [market.condition_id for market in markets if market.condition_id]
+    payloads: list[dict[str, Any]] = []
+    for batch in _batched(condition_ids, settings.polymarket_trades_batch_size):
+        payloads.extend(client.fetch_trades(condition_ids=batch))
+    return payloads
+
+
+def persist_trades(
+    session: Session,
+    markets: list[Market],
+    trade_payloads: Iterable[dict[str, Any]],
+    *,
+    summary: IngestionCycleSummary,
+) -> None:
+    market_by_condition_id = {
+        str(market.condition_id): market for market in markets if market.condition_id
+    }
+    for raw_trade in trade_payloads:
+        try:
+            normalized_trade = normalize_trade(raw_trade)
+        except ValueError as exc:
+            summary.trades_skipped += 1
+            _log_record_issue(summary, str(exc))
+            continue
+
+        market = market_by_condition_id.get(normalized_trade["condition_id"])
+        if market is None:
+            summary.trades_skipped += 1
+            _log_record_issue(
+                summary,
+                f"Skipping trade for unknown condition_id {normalized_trade['condition_id']}.",
+            )
+            continue
+
+        trade, inserted = upsert_trade(session, market, normalized_trade)
+        if inserted:
+            summary.trades_inserted += 1
+            summary.touched_trade_ids.add(trade.id)
 
 
 def execute_ingestion_cycle(
@@ -260,6 +334,33 @@ def execute_ingestion_cycle(
         if summary.integrity_messages:
             raise RuntimeError("; ".join(summary.integrity_messages))
 
+        touched_markets: list[Market] = []
+        if summary.touched_market_ids:
+            with session_factory() as session:
+                touched_markets = session.execute(
+                    select(Market)
+                    .where(Market.id.in_(summary.touched_market_ids))
+                    .order_by(Market.id.asc())
+                ).scalars().all()
+
+        if touched_markets:
+            trade_payloads = fetch_trade_payloads_for_markets(api_client, touched_markets)
+            summary.trades_fetched = len(trade_payloads)
+            with session_factory() as session:
+                with session.begin():
+                    persist_trades(session, touched_markets, trade_payloads, summary=summary)
+            logger.info(
+                "Trade ingestion completed.",
+                extra={
+                    "context": {
+                        "run_id": summary.run_id,
+                        "trades_fetched": summary.trades_fetched,
+                        "trades_inserted": summary.trades_inserted,
+                        "trades_skipped": summary.trades_skipped,
+                    }
+                },
+            )
+
         with session_factory() as session:
             with session.begin():
                 signal_result = generate_signals_for_snapshots(session, summary.touched_snapshot_ids)
@@ -274,6 +375,23 @@ def execute_ingestion_cycle(
                     "signals_generated": summary.signals_generated,
                     "signals_skipped": summary.signals_skipped,
                     "signal_types": summary.signal_type_counts,
+                }
+            },
+        )
+
+        with session_factory() as session:
+            with session.begin():
+                whale_result = generate_whales_for_trades(session, summary.touched_trade_ids)
+        summary.whales_generated = whale_result.generated_count
+        summary.whales_skipped = whale_result.skipped_count
+        logger.info(
+            "Whale detection completed.",
+            extra={
+                "context": {
+                    "run_id": summary.run_id,
+                    "trades_scanned": whale_result.scanned_count,
+                    "whales_generated": summary.whales_generated,
+                    "whales_skipped": summary.whales_skipped,
                 }
             },
         )
@@ -304,6 +422,8 @@ def execute_ingestion_cycle(
                     "snapshots_inserted": summary.snapshots_inserted,
                     "records_skipped": summary.records_skipped,
                     "signals_generated": summary.signals_generated,
+                    "trades_inserted": summary.trades_inserted,
+                    "whales_generated": summary.whales_generated,
                 }
             },
         )
@@ -344,6 +464,8 @@ def run_ingestion(limit: int | None = None) -> dict[str, int | str | None]:
         "records_skipped": summary.records_skipped,
         "integrity_errors": summary.integrity_errors,
         "signals_generated": summary.signals_generated,
+        "trades_inserted": summary.trades_inserted,
+        "whales_generated": summary.whales_generated,
         "run_id": summary.run_id,
     }
 

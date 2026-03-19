@@ -1,6 +1,6 @@
 # Information Edge Phase 5: Frontend Foundation
 
-This repo now covers Phase 1 through Phase 5 of Information Edge: it can fetch Polymarket events, store and analyze them, run a repeatable ingestion pipeline, generate signals, expose market analytics through a read-only FastAPI backend, and render a React dashboard on top of that backend.
+This repo now covers Phase 1 through Phase 5 of Information Edge plus the whale tracker: it can fetch Polymarket events and trades, store and analyze them, run a repeatable ingestion pipeline, generate signals and whale events, expose market analytics through a read-only FastAPI backend, and render a React dashboard on top of that backend.
 
 ## What Phase 5 Adds
 
@@ -8,14 +8,15 @@ This repo now covers Phase 1 through Phase 5 of Information Edge: it can fetch P
 - A split-panel dashboard with a market browser and market detail view
 - Historical price charting with Recharts
 - Signal history surfaced in the UI
-- A truthful whale-alert placeholder panel backed by the API
+- Real whale detection from Polymarket trade ingestion
+- Whale events persisted and exposed through the API
+- Whale activity surfaced in the dashboard and market detail view
 - A lightweight pipeline-runs observability panel
 - Frontend smoke/integration tests with Vitest + React Testing Library
 
 ## What Still Does Not Include
 
 - Sentiment or NLP overlays
-- Real whale detection from trade ingestion
 - Docker or deployment tooling
 - CI/CD automation
 - Alerting or notification integrations
@@ -42,13 +43,16 @@ Normalizes stringified fields like `outcomes`, `outcomePrices`, `clobTokenIds`, 
 Stores event-level tags when the payload includes them cleanly.
 
 ### `trades`
-This table exists as a Phase 1 placeholder schema only. Trade ingestion is intentionally not active yet because this repo currently ingests from Gamma `/events`, and trade history should be wired deliberately from Polymarket's trade-oriented endpoints in a later phase.
+Stores normalized trade data from Polymarket's public Data API `/trades`, keyed back to stored markets through `conditionId`. This is the raw trade history used for whale detection.
 
 ### `ingestion_runs`
 Stores one row per ingestion cycle. This is the Phase 2 observability table that records when each run started and finished, whether it succeeded, how many records were fetched and written, how many were skipped, and whether integrity checks failed.
 
 ### `signals`
 Stores the structured outputs of the new Phase 3 analytics layer. Each row represents one explainable event that the system detected from market snapshots, linked back to the triggering market, event, and snapshot.
+
+### `whale_events`
+Stores unusually large trades detected relative to a market's own recent trade-size baseline. Each whale event links to the triggering trade and stores the baseline statistics, detection score, and structured metadata used by the API and UI.
 
 ## Deduplication Strategy
 
@@ -152,6 +156,7 @@ python -m src.pipeline once
 ```
 
 After a successful ingestion cycle, the pipeline now also computes and stores signals for markets touched in that run.
+It also fetches recent trades for touched markets, stores them idempotently, and detects whale events from the newly inserted trades.
 
 ## Running The API
 
@@ -275,6 +280,9 @@ Core read endpoints now include:
 - `GET /signals`
 - `GET /runs`
 - `GET /runs/{run_id}`
+- `GET /whales/recent`
+- `GET /markets/{market_id}/whales`
+- `GET /markets/{market_id}/whale-summary`
 - `GET /whale-alerts`
 
 Useful example requests:
@@ -285,6 +293,10 @@ curl "http://127.0.0.1:8000/markets?limit=10&active=true"
 curl http://127.0.0.1:8000/markets/market-1
 curl http://127.0.0.1:8000/markets/market-1/history
 curl "http://127.0.0.1:8000/signals?signal_type=price_movement"
+curl "http://127.0.0.1:8000/signals?signal_type=whale"
+curl http://127.0.0.1:8000/whales/recent
+curl http://127.0.0.1:8000/markets/market-1/whales
+curl http://127.0.0.1:8000/markets/market-1/whale-summary
 curl http://127.0.0.1:8000/runs
 curl http://127.0.0.1:8000/whale-alerts
 ```
@@ -303,7 +315,7 @@ The market detail view shows:
 - market question and summary stats
 - historical price chart from `/markets/{market_id}/history`
 - recent market-specific signals from `/markets/{market_id}/signals`
-- whale-alert placeholder state from `/whale-alerts`
+- whale summary and history from `/markets/{market_id}/whales` and `/markets/{market_id}/whale-summary`
 
 This gives the project a usable full-stack demo surface without skipping ahead into sentiment, auth, or write APIs.
 
@@ -318,7 +330,7 @@ This gives the project a usable full-stack demo surface without skipping ahead i
    - `cd frontend`
    - `npm run dev`
 5. Open the dashboard in your browser.
-6. Search for a market, click it, and inspect the chart, recent signals, whale placeholder, and run panel.
+6. Search for a market, click it, and inspect the chart, recent signals, whale activity, and run panel.
 
 ## Logging And Integrity Checks
 
@@ -349,6 +361,25 @@ Signals are intentionally simple and rule-based in Phase 3:
 - `liquidity_shift`: latest liquidity changed sharply versus the earliest snapshot in the lookback window
 
 Signals are generated from stored `market_snapshots`, not external APIs. They are deduplicated by `(market_id, signal_type, snapshot_id)` so reruns do not spam duplicate rows for the same triggering snapshot.
+
+## Whale Detection
+
+Whale detection is now a real pipeline stage driven by stored trades from Polymarket's public `/trades` endpoint.
+
+- trade size is normalized as `price * size`
+- each market uses its own recent trade history as the baseline
+- a whale requires at least `WHALE_MIN_HISTORY_COUNT` prior trades
+- the detector computes mean, median, std, median-multiple, and z-score
+- a trade is flagged when it clears the absolute minimum notional and exceeds either the z-score or median-multiple threshold
+
+Whale events are stored in `whale_events`, deduplicated by `(trade_id, detection_method)`, and exposed both through whale-specific endpoints and the existing signal feed.
+
+Backfill stored trades into whale events with:
+
+```powershell
+python -m src.whales backfill
+python -m src.whales backfill --market-id <MARKET_ID>
+```
 
 ## Backend API Design
 
@@ -383,9 +414,13 @@ Environment variables now include:
 - `DATABASE_URL`
 - `POLYMARKET_BASE_URL`
 - `POLYMARKET_EVENTS_PATH`
+- `POLYMARKET_TRADES_BASE_URL`
+- `POLYMARKET_TRADES_PATH`
 - `POLYMARKET_ACTIVE`
 - `POLYMARKET_CLOSED`
 - `POLYMARKET_LIMIT`
+- `POLYMARKET_TRADES_LIMIT`
+- `POLYMARKET_TRADES_BATCH_SIZE`
 - `POLYMARKET_TIMEOUT_SECONDS`
 - `PIPELINE_INTERVAL_SECONDS`
 - `PIPELINE_LOG_LEVEL`
@@ -398,6 +433,11 @@ Environment variables now include:
 - `SIGNAL_VOLUME_MULTIPLIER`
 - `SIGNAL_LIQUIDITY_THRESHOLD`
 - `SIGNAL_LOOKBACK_WINDOW_MINUTES`
+- `WHALE_MIN_HISTORY_COUNT`
+- `WHALE_BASELINE_TRADE_COUNT`
+- `WHALE_ZSCORE_THRESHOLD`
+- `WHALE_MEDIAN_MULTIPLIER_THRESHOLD`
+- `WHALE_ABSOLUTE_MIN_NOTIONAL`
 
 ## Design Notes
 
@@ -412,4 +452,4 @@ Environment variables now include:
 
 ## Known Limitation
 
-The pipeline still ingests only Gamma `/events`. Signals are rule-based and intentionally simple, and whale alerts are currently an honest placeholder because trade ingestion is not active yet. Sentiment/NLP overlays, richer frontend interactions, auth, deployment, and production infra remain deferred to later phases.
+The pipeline now ingests events plus recent public trades, but it still relies on Polymarket's read APIs rather than authenticated order/trader infrastructure. Sentiment/NLP overlays, richer frontend interactions, auth, deployment, and production infra remain deferred to later phases.

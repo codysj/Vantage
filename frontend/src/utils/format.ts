@@ -72,6 +72,9 @@ export function signalContext(signalType: string) {
   if (signalType === "liquidity_shift") {
     return "Market depth shifted relative to recent observations.";
   }
+  if (signalType === "whale") {
+    return "Trade size stands out relative to this market's recent baseline.";
+  }
   return "Recent market behavior stands out from the baseline.";
 }
 
@@ -89,6 +92,11 @@ export function signalStrengthTier(signalType: string, strength: number) {
   if (signalType === "liquidity_shift") {
     if (strength >= 0.4) return "high";
     if (strength >= 0.25) return "medium";
+    return "low";
+  }
+  if (signalType === "whale") {
+    if (strength >= 8) return "high";
+    if (strength >= 4) return "medium";
     return "low";
   }
   return "low";

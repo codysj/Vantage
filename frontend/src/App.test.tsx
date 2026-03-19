@@ -3,6 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 
+vi.mock("./components/PriceChart", () => ({
+  PriceChart: ({ history }: { history: Array<unknown> }) => (
+    <div data-testid="price-chart-mock">History points: {history.length}</div>
+  ),
+}));
+
 const healthResponse = {
   status: "ok",
   timestamp: "2026-03-18T12:00:00Z",
@@ -18,6 +24,7 @@ const marketsResponse = {
       question: "Will the Fed cut rates in June?",
       category: "Economy",
       has_signals: true,
+      has_whales: true,
       active: true,
       closed: false,
       latest_price: 0.43,
@@ -31,6 +38,7 @@ const marketsResponse = {
       question: "Will CPI rise in April?",
       category: "Economy",
       has_signals: false,
+      has_whales: false,
       active: true,
       closed: false,
       latest_price: 0.61,
@@ -103,7 +111,7 @@ const historyResponse = {
   count: 1,
 };
 
-const signalsResponse = {
+const marketSignalsResponse = {
   items: [
     {
       id: 1,
@@ -118,6 +126,41 @@ const signalsResponse = {
       detected_at: "2026-03-18T12:00:00Z",
       summary: "Price moved 20%",
       metadata: { summary: "Price moved 20%" },
+    },
+    {
+      id: 101,
+      market_id: "market-1",
+      event_id: "event-1",
+      market_question: "Will the Fed cut rates in June?",
+      market_slug: "will-fed-cut-rates-june",
+      market_active: true,
+      market_closed: false,
+      signal_type: "whale",
+      signal_strength: 10,
+      detected_at: "2026-03-18T12:01:00Z",
+      summary: "Whale trade 8.27x median notional",
+      metadata: { summary: "Whale trade 8.27x median notional" },
+    },
+  ],
+  limit: 10,
+  count: 2,
+};
+
+const globalSignalsResponse = {
+  items: [
+    {
+      id: 101,
+      market_id: "market-1",
+      event_id: "event-1",
+      market_question: "Will the Fed cut rates in June?",
+      market_slug: "will-fed-cut-rates-june",
+      market_active: true,
+      market_closed: false,
+      signal_type: "whale",
+      signal_strength: 10,
+      detected_at: "2026-03-18T12:01:00Z",
+      summary: "Whale trade 8.27x median notional",
+      metadata: { summary: "Whale trade 8.27x median notional" },
     },
     {
       id: 2,
@@ -160,16 +203,66 @@ const runsResponse = {
   count: 1,
 };
 
-const whaleResponse = {
-  status: "unavailable",
-  message: "Trade ingestion is not active yet; whale alerts are deferred.",
-  alerts: [],
+const marketWhalesResponse = {
+  items: [
+    {
+      id: 1,
+      market_id: "market-1",
+      event_id: "event-1",
+      market_question: "Will the Fed cut rates in June?",
+      market_slug: "will-fed-cut-rates-june",
+      detected_at: "2026-03-18T12:01:00Z",
+      trade_size: 620,
+      whale_score: 10,
+      median_multiple: 8.27,
+      side: "BUY",
+      outcome_label: "Yes",
+      proxy_wallet: "0xabc",
+      detection_method: "market_local_baseline",
+      summary: "Whale trade 8.27x median notional",
+      metadata: { summary: "Whale trade 8.27x median notional" },
+    },
+  ],
+  limit: 8,
+  count: 1,
+};
+
+const secondMarketWhalesResponse = {
+  items: [],
+  limit: 8,
+  count: 0,
+};
+
+const whaleSummaryResponse = {
+  market_id: "market-1",
+  total_whale_events: 1,
+  most_recent_whale_at: "2026-03-18T12:01:00Z",
+  largest_whale_trade: 620,
+  average_whale_score: 10,
+  whale_events_24h: 1,
+  whale_events_7d: 1,
+  has_recent_whale_activity: true,
+};
+
+const secondMarketWhaleSummaryResponse = {
+  market_id: "market-2",
+  total_whale_events: 0,
+  most_recent_whale_at: null,
+  largest_whale_trade: null,
+  average_whale_score: null,
+  whale_events_24h: 0,
+  whale_events_7d: 0,
+  has_recent_whale_activity: false,
 };
 
 function installFetchMock(overrides?: {
   history?: typeof historyResponse;
-  signals?: typeof signalsResponse;
+  signals?: typeof marketSignalsResponse;
+  globalSignals?: typeof globalSignalsResponse;
   marketsStatus?: number;
+  runs?: typeof runsResponse;
+  marketWhales?: typeof marketWhalesResponse;
+  whaleSummary?: typeof whaleSummaryResponse;
 }) {
   const mockFetch = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
@@ -180,16 +273,11 @@ function installFetchMock(overrides?: {
     if (url.includes("/markets?")) {
       const status = overrides?.marketsStatus ?? 200;
       return Promise.resolve(
-        new Response(
-          status === 200 ? JSON.stringify(marketsResponse) : "error",
-          { status },
-        ),
+        new Response(status === 200 ? JSON.stringify(marketsResponse) : "error", { status }),
       );
     }
     if (url.endsWith("/markets/market-1")) {
-      return Promise.resolve(
-        new Response(JSON.stringify(marketDetailResponse), { status: 200 }),
-      );
+      return Promise.resolve(new Response(JSON.stringify(marketDetailResponse), { status: 200 }));
     }
     if (url.endsWith("/markets/market-2")) {
       return Promise.resolve(
@@ -198,10 +286,7 @@ function installFetchMock(overrides?: {
     }
     if (url.includes("/markets/market-1/history")) {
       return Promise.resolve(
-        new Response(
-          JSON.stringify(overrides?.history ?? historyResponse),
-          { status: 200 },
-        ),
+        new Response(JSON.stringify(overrides?.history ?? historyResponse), { status: 200 }),
       );
     }
     if (url.includes("/markets/market-2/history")) {
@@ -227,7 +312,7 @@ function installFetchMock(overrides?: {
     }
     if (url.includes("/markets/market-1/signals")) {
       return Promise.resolve(
-        new Response(JSON.stringify(overrides?.signals ?? signalsResponse), { status: 200 }),
+        new Response(JSON.stringify(overrides?.signals ?? marketSignalsResponse), { status: 200 }),
       );
     }
     if (url.includes("/markets/market-2/signals")) {
@@ -259,14 +344,42 @@ function installFetchMock(overrides?: {
     }
     if (url.includes("/signals?")) {
       return Promise.resolve(
-        new Response(JSON.stringify(overrides?.signals ?? signalsResponse), { status: 200 }),
+        new Response(
+          JSON.stringify(overrides?.globalSignals ?? globalSignalsResponse),
+          { status: 200 },
+        ),
       );
     }
     if (url.includes("/runs?")) {
-      return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
+      return Promise.resolve(
+        new Response(JSON.stringify(overrides?.runs ?? runsResponse), { status: 200 }),
+      );
     }
-    if (url.includes("/whale-alerts")) {
-      return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
+    if (url.includes("/markets/market-1/whales")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(overrides?.marketWhales ?? marketWhalesResponse),
+          { status: 200 },
+        ),
+      );
+    }
+    if (url.includes("/markets/market-2/whales")) {
+      return Promise.resolve(
+        new Response(JSON.stringify(secondMarketWhalesResponse), { status: 200 }),
+      );
+    }
+    if (url.includes("/markets/market-1/whale-summary")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(overrides?.whaleSummary ?? whaleSummaryResponse),
+          { status: 200 },
+        ),
+      );
+    }
+    if (url.includes("/markets/market-2/whale-summary")) {
+      return Promise.resolve(
+        new Response(JSON.stringify(secondMarketWhaleSummaryResponse), { status: 200 }),
+      );
     }
 
     return Promise.reject(new Error(`Unhandled fetch: ${url}`));
@@ -276,45 +389,56 @@ function installFetchMock(overrides?: {
   return mockFetch;
 }
 
+async function findMarketList() {
+  return screen.findByLabelText("Market list");
+}
+
+async function findMarketButton(name: RegExp) {
+  const list = await findMarketList();
+  return within(list).findByRole("button", { name });
+}
+
+function getMarketButton(list: HTMLElement, name: RegExp) {
+  return within(list).getByRole("button", { name });
+}
+
 describe("App", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("renders fetched data and selected market detail", async () => {
+  it("renders fetched data, system status, and market whale activity", async () => {
     installFetchMock();
 
     render(<App />);
 
-    expect(
-      screen.getByText("Prediction Market Intelligence Dashboard"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Prediction Market Intelligence Dashboard")).toBeInTheDocument();
 
-    await screen.findByText("Will the Fed cut rates in June?");
-    expect(screen.getByText("Price moved 20%")).toBeInTheDocument();
-    expect(screen.getByText("Will CPI rise in April?")).toBeInTheDocument();
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
     expect(screen.getByText("System Status")).toBeInTheDocument();
     expect(screen.getByText("Healthy")).toBeInTheDocument();
-    expect(screen.getByText("Latest run duration")).toBeInTheDocument();
-    expect(screen.getByLabelText("Category filter")).toBeInTheDocument();
-    expect(screen.getByLabelText("Signal type filter")).toBeInTheDocument();
-    expect(screen.getByLabelText("With signals only")).toBeInTheDocument();
+    expect(screen.getByText("Whale Activity")).toBeInTheDocument();
+    expect(screen.getAllByText("Whale trade 8.27x median notional").length).toBeGreaterThan(0);
     expect(
-      screen.getByText("Trade ingestion is not active yet; whale alerts are deferred."),
+      await screen.findByText((_, element) => element?.textContent === "Total whale events"),
     ).toBeInTheDocument();
   });
 
-  it("renders the signals badge only for markets that truly have signals", async () => {
+  it("renders signal and whale badges only on matching markets", async () => {
     installFetchMock();
 
     render(<App />);
 
-    await screen.findByText("Will the Fed cut rates in June?");
+    const list = await findMarketList();
     const signalBadges = screen.getAllByText("Signals");
+    const whaleBadges = screen.getAllByText("Whales");
 
     expect(signalBadges).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /Will the Fed cut rates in June\?/i })).toHaveTextContent("Signals");
-    expect(screen.getByRole("button", { name: /Will CPI rise in April\?/i })).not.toHaveTextContent("Signals");
+    expect(whaleBadges).toHaveLength(1);
+    expect(getMarketButton(list, /Will the Fed cut rates in June\?/i)).toHaveTextContent("Signals");
+    expect(getMarketButton(list, /Will the Fed cut rates in June\?/i)).toHaveTextContent("Whales");
+    expect(getMarketButton(list, /Will CPI rise in April\?/i)).not.toHaveTextContent("Signals");
+    expect(getMarketButton(list, /Will CPI rise in April\?/i)).not.toHaveTextContent("Whales");
   });
 
   it("clicking a signal selects that market and updates the detail panel", async () => {
@@ -322,16 +446,16 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Will CPI rise in April?");
+    const list = await findMarketList();
 
-    fireEvent.click(screen.getByRole("button", { name: /Will CPI rise in April\?/i }));
+    fireEvent.click(getMarketButton(list, /Will CPI rise in April\?/i));
 
-    await screen.findAllByText("Will CPI rise in April?");
+    await screen.findByText("Inflation market");
     expect(screen.getByText("Inflation market")).toBeInTheDocument();
-    expect(screen.getByText("Volume jumped versus baseline")).toBeInTheDocument();
+    expect(screen.getByText("No whale events detected for this market yet.")).toBeInTheDocument();
   });
 
-  it("surfaces stronger signals first in the global feed", async () => {
+  it("surfaces stronger whale signals first in the global feed", async () => {
     installFetchMock();
 
     render(<App />);
@@ -340,15 +464,19 @@ describe("App", () => {
     const signalContainer = panel.closest(".panel");
     expect(signalContainer).not.toBeNull();
     const titles = within(signalContainer as HTMLElement).getAllByText(/Will .* in .*\?/i);
-    expect(titles[0]).toHaveTextContent("Will CPI rise in April?");
-    expect(within(signalContainer as HTMLElement).getByText("Volume is elevated versus the recent baseline.")).toBeInTheDocument();
+    expect(titles[0]).toHaveTextContent("Will the Fed cut rates in June?");
+    expect(
+      within(signalContainer as HTMLElement).getByText(
+        "Trade size stands out relative to this market's recent baseline.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("updates search input and refetches market list", async () => {
     const fetchMock = installFetchMock();
 
     render(<App />);
-    await screen.findByText("Will the Fed cut rates in June?");
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
 
     fireEvent.change(screen.getByLabelText("Search markets"), {
       target: { value: "rates" },
@@ -365,20 +493,20 @@ describe("App", () => {
     const fetchMock = installFetchMock();
 
     render(<App />);
-    await screen.findByText("Will the Fed cut rates in June?");
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
 
     fireEvent.change(screen.getByLabelText("Category filter"), {
       target: { value: "Economy" },
     });
     fireEvent.click(screen.getByLabelText("With signals only"));
     fireEvent.change(screen.getByLabelText("Signal type filter"), {
-      target: { value: "price_movement" },
+      target: { value: "whale" },
     });
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining(
-          "/markets?limit=20&offset=0&category=Economy&has_signals=true&signal_type=price_movement",
+          "/markets?limit=20&offset=0&category=Economy&has_signals=true&signal_type=whale",
         ),
       );
     });
@@ -413,16 +541,27 @@ describe("App", () => {
         return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
       }
       if (url.includes("/markets/market-1/signals")) {
-        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify(marketSignalsResponse), { status: 200 }),
+        );
       }
       if (url.includes("/signals?")) {
-        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify(globalSignalsResponse), { status: 200 }),
+        );
       }
       if (url.includes("/runs?")) {
         return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
       }
-      if (url.includes("/whale-alerts")) {
-        return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
+      if (url.includes("/markets/market-1/whales")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(marketWhalesResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/markets/market-1/whale-summary")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(whaleSummaryResponse), { status: 200 }),
+        );
       }
 
       return Promise.reject(new Error(`Unhandled fetch: ${url}`));
@@ -431,24 +570,26 @@ describe("App", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     render(<App />);
-    await screen.findByText("Will the Fed cut rates in June?");
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
 
     fireEvent.click(screen.getByLabelText("With signals only"));
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /Will CPI rise in April\?/i })).not.toBeInTheDocument();
+      const marketList = screen.getByLabelText("Market list");
+      expect(
+        within(marketList).queryByRole("button", { name: /Will CPI rise in April\?/i }),
+      ).not.toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: /Will the Fed cut rates in June\?/i })).toBeInTheDocument();
   });
 
-  it("signal type filtering only matches markets with that signal type", async () => {
+  it("signal type filtering only matches markets with whale activity when whale is selected", async () => {
     const mockFetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
 
       if (url.includes("/health")) {
         return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
       }
-      if (url.includes("/markets?") && url.includes("signal_type=price_movement")) {
+      if (url.includes("/markets?") && url.includes("signal_type=whale")) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -470,16 +611,27 @@ describe("App", () => {
         return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
       }
       if (url.includes("/markets/market-1/signals")) {
-        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify(marketSignalsResponse), { status: 200 }),
+        );
       }
       if (url.includes("/signals?")) {
-        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify(globalSignalsResponse), { status: 200 }),
+        );
       }
       if (url.includes("/runs?")) {
         return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
       }
-      if (url.includes("/whale-alerts")) {
-        return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
+      if (url.includes("/markets/market-1/whales")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(marketWhalesResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/markets/market-1/whale-summary")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(whaleSummaryResponse), { status: 200 }),
+        );
       }
 
       return Promise.reject(new Error(`Unhandled fetch: ${url}`));
@@ -488,40 +640,52 @@ describe("App", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     render(<App />);
-    await screen.findByText("Will the Fed cut rates in June?");
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
 
     fireEvent.change(screen.getByLabelText("Signal type filter"), {
-      target: { value: "price_movement" },
+      target: { value: "whale" },
     });
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /Will CPI rise in April\?/i })).not.toBeInTheDocument();
+      const marketList = screen.getByLabelText("Market list");
+      expect(
+        within(marketList).queryByRole("button", { name: /Will CPI rise in April\?/i }),
+      ).not.toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: /Will the Fed cut rates in June\?/i })).toBeInTheDocument();
   });
 
   it("marks the selected market row clearly in the browser", async () => {
     installFetchMock();
 
     render(<App />);
-    const selectedRow = await screen.findByRole("button", {
-      name: /Will the Fed cut rates in June\?/i,
-    });
+    const selectedRow = await findMarketButton(/Will the Fed cut rates in June\?/i);
 
     expect(selectedRow.className).toContain("market-row-selected-strong");
   });
 
-  it("renders empty chart and signal states when market detail has no history", async () => {
+  it("renders empty chart, signal, and whale states when market detail has no history", async () => {
     installFetchMock({
       history: { market_id: "market-1", items: [], count: 0 },
       signals: { items: [], limit: 10, count: 0 },
+      marketWhales: { items: [], limit: 8, count: 0 },
+      whaleSummary: {
+        market_id: "market-1",
+        total_whale_events: 0,
+        most_recent_whale_at: null,
+        largest_whale_trade: null,
+        average_whale_score: null,
+        whale_events_24h: 0,
+        whale_events_7d: 0,
+        has_recent_whale_activity: false,
+      },
     });
 
     render(<App />);
 
-    await screen.findByText("Will the Fed cut rates in June?");
-    expect(screen.getByText("No history yet for this market.")).toBeInTheDocument();
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
+    expect(screen.getByTestId("price-chart-mock")).toHaveTextContent("History points: 0");
     expect(screen.getByText("No recent signals for this market.")).toBeInTheDocument();
+    expect(screen.getByText("No whale events detected for this market yet.")).toBeInTheDocument();
   });
 
   it("renders error state when market fetch fails", async () => {
@@ -530,7 +694,6 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByText("Unable to load markets right now.");
-    expect(screen.getByText("Unable to load markets right now.")).toBeInTheDocument();
   });
 
   it("renders an empty state when filters produce no markets", async () => {
@@ -543,19 +706,24 @@ describe("App", () => {
       if (url.includes("/markets?")) {
         return Promise.resolve(
           new Response(
-            JSON.stringify({ items: [], limit: 20, offset: 0, count: 0, available_categories: ["Economy"] }),
+            JSON.stringify({
+              items: [],
+              limit: 20,
+              offset: 0,
+              count: 0,
+              available_categories: ["Economy"],
+            }),
             { status: 200 },
           ),
         );
       }
       if (url.includes("/signals?")) {
-        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+        return Promise.resolve(
+          new Response(JSON.stringify(globalSignalsResponse), { status: 200 }),
+        );
       }
       if (url.includes("/runs?")) {
         return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
-      }
-      if (url.includes("/whale-alerts")) {
-        return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
       }
 
       return Promise.reject(new Error(`Unhandled fetch: ${url}`));
@@ -566,48 +734,17 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByText("No markets match the current filters.");
-    expect(screen.getByText("No markets match the current filters.")).toBeInTheDocument();
   });
 
   it("renders a friendly empty state when no pipeline runs exist", async () => {
-    const mockFetch = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
-
-      if (url.includes("/health")) {
-        return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
-      }
-      if (url.includes("/markets?")) {
-        return Promise.resolve(new Response(JSON.stringify(marketsResponse), { status: 200 }));
-      }
-      if (url.endsWith("/markets/market-1")) {
-        return Promise.resolve(new Response(JSON.stringify(marketDetailResponse), { status: 200 }));
-      }
-      if (url.includes("/markets/market-1/history")) {
-        return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
-      }
-      if (url.includes("/markets/market-1/signals")) {
-        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
-      }
-      if (url.includes("/signals?")) {
-        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
-      }
-      if (url.includes("/runs?")) {
-        return Promise.resolve(
-          new Response(JSON.stringify({ items: [], limit: 6, count: 0 }), { status: 200 }),
-        );
-      }
-      if (url.includes("/whale-alerts")) {
-        return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
-      }
-
-      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    installFetchMock({
+      runs: { items: [], limit: 6, count: 0 },
     });
-
-    vi.stubGlobal("fetch", mockFetch);
 
     render(<App />);
 
-    await screen.findByText("No ingestion runs recorded yet. Start the pipeline to populate status metrics and freshness data.");
-    expect(screen.getByText("No ingestion runs recorded yet. Start the pipeline to populate status metrics and freshness data.")).toBeInTheDocument();
+    await screen.findByText(
+      "No ingestion runs recorded yet. Start the pipeline to populate status metrics and freshness data.",
+    );
   });
 });

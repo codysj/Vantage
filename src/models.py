@@ -113,6 +113,7 @@ class Market(TimestampMixin, Base):
     )
     trades: Mapped[list["Trade"]] = relationship(back_populates="market")
     signals: Mapped[list["Signal"]] = relationship(back_populates="market")
+    whale_events: Mapped[list["WhaleEvent"]] = relationship(back_populates="market")
 
 
 class MarketSnapshot(Base):
@@ -211,6 +212,11 @@ class Trade(Base):
     side: Mapped[str | None] = mapped_column(String(32))
     price: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
     size: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
+    trade_size: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
+    proxy_wallet: Mapped[str | None] = mapped_column(String(128))
+    outcome_label: Mapped[str | None] = mapped_column(String(255))
+    outcome_index: Mapped[int | None] = mapped_column()
+    transaction_hash: Mapped[str | None] = mapped_column(String(128))
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_json: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
     inserted_at: Mapped[datetime] = mapped_column(
@@ -218,6 +224,7 @@ class Trade(Base):
     )
 
     market: Mapped["Market"] = relationship(back_populates="trades")
+    whale_events: Mapped[list["WhaleEvent"]] = relationship(back_populates="trade")
 
 
 class IngestionRun(Base):
@@ -268,3 +275,30 @@ class Signal(Base):
     market: Mapped["Market"] = relationship(back_populates="signals")
     event: Mapped["Event"] = relationship(back_populates="signals")
     snapshot: Mapped["MarketSnapshot"] = relationship(back_populates="signals")
+
+
+class WhaleEvent(Base):
+    __tablename__ = "whale_events"
+    __table_args__ = (
+        UniqueConstraint("trade_id", "detection_method", name="uq_whale_events_trade_method"),
+        Index("ix_whale_events_detected_at", "detected_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), nullable=False, index=True)
+    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.id"), nullable=False, index=True)
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    trade_size: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    baseline_mean_size: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
+    baseline_median_size: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
+    baseline_std_size: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
+    median_multiple: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
+    whale_score: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    detection_method: Mapped[str] = mapped_column(String(64), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    market: Mapped["Market"] = relationship(back_populates="whale_events")
+    trade: Mapped["Trade"] = relationship(back_populates="whale_events")
