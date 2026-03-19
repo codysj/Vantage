@@ -1,25 +1,24 @@
-# Information Edge Phase 2: Automated Pipeline
+# Information Edge Phase 3: Signal Detection Layer
 
-This repo now covers Phase 1 and Phase 2 of Information Edge: it can fetch Polymarket events, normalize messy API payloads, persist them to PostgreSQL, and run a repeatable local ingestion service with scheduling, logging, integrity checks, and run history.
+This repo now covers Phase 1 through Phase 3 of Information Edge: it can fetch Polymarket events, normalize and store them in PostgreSQL, run a repeatable ingestion pipeline, and generate simple rule-based market signals from stored historical snapshots.
 
-## What Phase 2 Adds
+## What Phase 3 Adds
 
-- `python -m src.pipeline once` for one observable ingestion cycle
-- `python -m src.pipeline serve` for scheduled ingestion in one foreground process
-- Structured logging to console, with optional file logging
-- Pre-write and post-write integrity checks
-- Persistent `ingestion_runs` history for observability
-- Tests covering scheduling behavior, integrity checks, and run tracking
+- Rule-based signal generation after successful ingestion
+- A new `signals` table for structured, queryable analytics output
+- Three initial signal types: price movement, volume spike, and liquidity shift
+- CLI queries for recent signals
+- Tests covering signal logic, signal storage, deduplication, and pipeline integration
 
 ## What Still Does Not Include
 
-- Scheduling or recurring ingestion
-- Signal detection
 - FastAPI endpoints
 - Frontend/dashboard work
 - Docker or deployment tooling
 - CI/CD automation
 - Alerting or notification integrations
+- Machine learning or statistical modeling
+- Real-time streaming
 
 ## Schema Overview
 
@@ -45,6 +44,9 @@ This table exists as a Phase 1 placeholder schema only. Trade ingestion is inten
 
 ### `ingestion_runs`
 Stores one row per ingestion cycle. This is the Phase 2 observability table that records when each run started and finished, whether it succeeded, how many records were fetched and written, how many were skipped, and whether integrity checks failed.
+
+### `signals`
+Stores the structured outputs of the new Phase 3 analytics layer. Each row represents one explainable event that the system detected from market snapshots, linked back to the triggering market, event, and snapshot.
 
 ## Deduplication Strategy
 
@@ -125,6 +127,8 @@ Phase 2 pipeline entrypoint:
 python -m src.pipeline once
 ```
 
+After a successful ingestion cycle, the pipeline now also computes and stores signals for markets touched in that run.
+
 ## Running The Continuous Pipeline
 
 Start the local scheduler service:
@@ -186,6 +190,14 @@ python -m src.queries runs --limit 10
 python -m src.pipeline runs --limit 10
 ```
 
+Inspect recent signals:
+
+```powershell
+python -m src.queries signals --limit 10
+python -m src.queries signals --limit 10 --signal-type price_movement
+python -m src.queries signals --limit 10 --market-id <MARKET_ID>
+```
+
 ## Logging And Integrity Checks
 
 The Phase 2 pipeline logs:
@@ -205,6 +217,16 @@ Integrity checks are real pipeline steps, not TODOs:
 - post-write checks verify duplicate protections, orphan detection, blank critical identifiers, and general DB sanity after each run
 
 Bad individual records are logged and skipped. Systemic post-write failures mark the whole run as failed.
+
+## Signal Detection
+
+Signals are intentionally simple and rule-based in Phase 3:
+
+- `price_movement`: latest price changed sharply versus the earliest snapshot in the lookback window
+- `volume_spike`: latest volume is much larger than the recent baseline average
+- `liquidity_shift`: latest liquidity changed sharply versus the earliest snapshot in the lookback window
+
+Signals are generated from stored `market_snapshots`, not external APIs. They are deduplicated by `(market_id, signal_type, snapshot_id)` so reruns do not spam duplicate rows for the same triggering snapshot.
 
 ## Running Tests
 
@@ -230,6 +252,10 @@ Environment variables now include:
 - `PIPELINE_MAX_RETRIES`
 - `PIPELINE_MISFIRE_GRACE_SECONDS`
 - `PIPELINE_CONTINUOUS_DEFAULT`
+- `SIGNAL_PRICE_THRESHOLD`
+- `SIGNAL_VOLUME_MULTIPLIER`
+- `SIGNAL_LIQUIDITY_THRESHOLD`
+- `SIGNAL_LOOKBACK_WINDOW_MINUTES`
 
 ## Design Notes
 
@@ -238,7 +264,8 @@ Environment variables now include:
 - Raw event and market payloads are stored so future phases can add fields without guessing how older payloads looked.
 - The code favors small helper functions and explicit data flow over framework-heavy abstractions.
 - Scheduling is intentionally in-process and lightweight so the pipeline stays easy to explain in an interview.
+- Signal detection is also intentionally lightweight: clear thresholds, recent-vs-baseline comparisons, and explainable metadata instead of heavier statistical or ML models.
 
 ## Known Limitation
 
-The pipeline still ingests only Gamma `/events`. Trade-history ingestion, signal detection, APIs, dashboards, deployment, and production process management are still deferred to later phases. The `trades` table exists, but the pipeline does not populate it yet.
+The pipeline still ingests only Gamma `/events`. Signals are rule-based and intentionally simple; they are not yet anomaly models, whale detectors, trading agents, or NLP-driven insights. The `trades` table still exists as a placeholder and is not populated by the current pipeline.

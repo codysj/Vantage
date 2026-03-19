@@ -70,6 +70,7 @@ class Event(TimestampMixin, Base):
     event_tags: Mapped[list["EventTag"]] = relationship(
         back_populates="event", cascade="all, delete-orphan"
     )
+    signals: Mapped[list["Signal"]] = relationship(back_populates="event")
 
 
 class Market(TimestampMixin, Base):
@@ -111,6 +112,7 @@ class Market(TimestampMixin, Base):
         back_populates="market", cascade="all, delete-orphan"
     )
     trades: Mapped[list["Trade"]] = relationship(back_populates="market")
+    signals: Mapped[list["Signal"]] = relationship(back_populates="market")
 
 
 class MarketSnapshot(Base):
@@ -149,6 +151,7 @@ class MarketSnapshot(Base):
     )
 
     market: Mapped["Market"] = relationship(back_populates="snapshots")
+    signals: Mapped[list["Signal"]] = relationship(back_populates="snapshot")
 
 
 class MarketOutcome(TimestampMixin, Base):
@@ -239,3 +242,29 @@ class IngestionRun(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
+
+
+class Signal(Base):
+    __tablename__ = "signals"
+    __table_args__ = (
+        UniqueConstraint("market_id", "signal_type", "snapshot_id", name="uq_signals_market_type_snapshot"),
+        Index("ix_signals_detected_at", "detected_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), nullable=False, index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), nullable=False, index=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("market_snapshots.id"), nullable=False, index=True
+    )
+    signal_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    signal_strength: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONType, nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    market: Mapped["Market"] = relationship(back_populates="signals")
+    event: Mapped["Event"] = relationship(back_populates="signals")
+    snapshot: Mapped["MarketSnapshot"] = relationship(back_populates="signals")

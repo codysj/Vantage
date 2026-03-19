@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from decimal import Decimal
 
 from dotenv import load_dotenv
 
@@ -30,6 +31,13 @@ def _get_str(name: str, default: str) -> str:
     return value
 
 
+def _get_decimal(name: str, default: str) -> Decimal:
+    value = os.getenv(name)
+    if value is None:
+        value = default
+    return Decimal(value)
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str = os.getenv(
@@ -53,6 +61,10 @@ class Settings:
         "PIPELINE_MISFIRE_GRACE_SECONDS", 30
     )
     pipeline_continuous_default: bool = _get_bool("PIPELINE_CONTINUOUS_DEFAULT", False)
+    signal_price_threshold: Decimal = _get_decimal("SIGNAL_PRICE_THRESHOLD", "0.10")
+    signal_volume_multiplier: Decimal = _get_decimal("SIGNAL_VOLUME_MULTIPLIER", "3.0")
+    signal_liquidity_threshold: Decimal = _get_decimal("SIGNAL_LIQUIDITY_THRESHOLD", "0.20")
+    signal_lookback_window_minutes: int = _get_int("SIGNAL_LOOKBACK_WINDOW_MINUTES", 30)
 
     @property
     def polymarket_events_url(self) -> str:

@@ -20,6 +20,7 @@ from src.logging_config import configure_logging
 from src.models import Event, EventTag, Market, MarketOutcome, MarketSnapshot, Tag
 from src.normalize import normalize_event
 from src.run_tracking import create_run, update_run
+from src.signals import generate_signals_for_snapshots
 
 
 logger = logging.getLogger(__name__)
@@ -40,8 +41,13 @@ class IngestionCycleSummary:
     integrity_errors: int = 0
     duration_ms: int | None = None
     error_message: str | None = None
+    signals_generated: int = 0
+    signals_skipped: int = 0
     record_errors: list[str] = field(default_factory=list)
     integrity_messages: list[str] = field(default_factory=list)
+    signal_messages: list[str] = field(default_factory=list)
+    signal_type_counts: dict[str, int] = field(default_factory=dict)
+    touched_snapshot_ids: set[int] = field(default_factory=set, repr=False)
 
     def finish(self, *, status: str, error_message: str | None = None) -> None:
         self.status = status
@@ -57,7 +63,8 @@ class IngestionCycleSummary:
             f"run_id={self.run_id} status={self.status} fetched={self.records_fetched} "
             f"events_upserted={self.events_upserted} markets_upserted={self.markets_upserted} "
             f"snapshots_inserted={self.snapshots_inserted} records_skipped={self.records_skipped} "
-            f"integrity_errors={self.integrity_errors} duration_ms={self.duration_ms}"
+            f"integrity_errors={self.integrity_errors} signals_generated={self.signals_generated} "
+            f"signals_skipped={self.signals_skipped} duration_ms={self.duration_ms}"
         )
 
 
@@ -119,14 +126,17 @@ def ensure_event_tags(session: Session, event: Event, tag_rows: Iterable[dict[st
         _upsert(session, EventTag, join_row, ["event_id", "tag_id"])
 
 
-def insert_snapshot(session: Session, market: Market, snapshot_data: dict[str, Any]) -> bool:
+def insert_snapshot(session: Session, market: Market, snapshot_data: dict[str, Any]) -> tuple[MarketSnapshot, bool]:
     before_snapshot = session.execute(
         select(MarketSnapshot).where(MarketSnapshot.snapshot_key == snapshot_data["snapshot_key"])
     ).scalar_one_or_none()
     payload = dict(snapshot_data)
     payload["market_id"] = market.id
     _upsert(session, MarketSnapshot, payload, ["snapshot_key"])
-    return before_snapshot is None
+    snapshot = session.execute(
+        select(MarketSnapshot).where(MarketSnapshot.snapshot_key == snapshot_data["snapshot_key"])
+    ).scalar_one()
+    return snapshot, before_snapshot is None
 
 
 def _log_record_issue(summary: IngestionCycleSummary, message: str) -> None:
@@ -182,7 +192,9 @@ def persist_events(
             market = upsert_market(session, event, market_bundle["market"])
             session.flush()
             upsert_market_outcomes(session, market, market_bundle["outcomes"])
-            if insert_snapshot(session, market, market_bundle["snapshot"]):
+            snapshot, inserted = insert_snapshot(session, market, market_bundle["snapshot"])
+            active_summary.touched_snapshot_ids.add(snapshot.id)
+            if inserted:
                 active_summary.snapshots_inserted += 1
             active_summary.markets_upserted += 1
 
@@ -248,6 +260,24 @@ def execute_ingestion_cycle(
         if summary.integrity_messages:
             raise RuntimeError("; ".join(summary.integrity_messages))
 
+        with session_factory() as session:
+            with session.begin():
+                signal_result = generate_signals_for_snapshots(session, summary.touched_snapshot_ids)
+        summary.signals_generated = signal_result.generated_count
+        summary.signals_skipped = signal_result.skipped_count
+        summary.signal_type_counts = signal_result.signal_type_counts
+        logger.info(
+            "Signal generation completed.",
+            extra={
+                "context": {
+                    "run_id": summary.run_id,
+                    "signals_generated": summary.signals_generated,
+                    "signals_skipped": summary.signals_skipped,
+                    "signal_types": summary.signal_type_counts,
+                }
+            },
+        )
+
         summary.finish(status="success")
         update_run(
             session_factory,
@@ -273,6 +303,7 @@ def execute_ingestion_cycle(
                     "markets_upserted": summary.markets_upserted,
                     "snapshots_inserted": summary.snapshots_inserted,
                     "records_skipped": summary.records_skipped,
+                    "signals_generated": summary.signals_generated,
                 }
             },
         )
@@ -312,6 +343,7 @@ def run_ingestion(limit: int | None = None) -> dict[str, int | str | None]:
         "snapshots_inserted": summary.snapshots_inserted,
         "records_skipped": summary.records_skipped,
         "integrity_errors": summary.integrity_errors,
+        "signals_generated": summary.signals_generated,
         "run_id": summary.run_id,
     }
 

@@ -7,7 +7,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from src.db import SessionLocal
-from src.models import Event, IngestionRun, Market, MarketSnapshot
+from src.models import Event, IngestionRun, Market, MarketSnapshot, Signal
 
 
 def list_markets(session: Session) -> list[Market]:
@@ -70,6 +70,21 @@ def get_recent_ingestion_runs(session: Session, limit: int = 10) -> list[Ingesti
     return list(session.execute(stmt).scalars().all())
 
 
+def get_recent_signals(
+    session: Session,
+    limit: int = 10,
+    signal_type: str | None = None,
+    market_id: str | None = None,
+) -> list[tuple[Signal, Market]]:
+    stmt = select(Signal, Market).join(Market, Signal.market_id == Market.id)
+    if signal_type:
+        stmt = stmt.where(Signal.signal_type == signal_type)
+    if market_id:
+        stmt = stmt.where(Market.market_id == market_id)
+    stmt = stmt.order_by(Signal.detected_at.desc()).limit(limit)
+    return list(session.execute(stmt).all())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Query stored Information Edge market data.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -89,6 +104,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("events")
     runs_parser = subparsers.add_parser("runs")
     runs_parser.add_argument("--limit", type=int, default=10)
+    signals_parser = subparsers.add_parser("signals")
+    signals_parser.add_argument("--limit", type=int, default=10)
+    signals_parser.add_argument("--signal-type")
+    signals_parser.add_argument("--market-id")
     return parser
 
 
@@ -127,6 +146,18 @@ def main() -> None:
                     f"{run.id}\t{run.status}\t{run.trigger_mode}\t"
                     f"{run.run_started_at.isoformat()}\t{run.records_fetched}\t"
                     f"{run.snapshots_inserted}"
+                )
+        elif args.command == "signals":
+            for signal, market in get_recent_signals(
+                session,
+                limit=args.limit,
+                signal_type=args.signal_type,
+                market_id=args.market_id,
+            ):
+                summary = signal.metadata_json.get("summary", "")
+                print(
+                    f"{signal.detected_at.isoformat()}\t{market.market_id}\t"
+                    f"{signal.signal_type}\t{signal.signal_strength}\t{summary}"
                 )
 
 
