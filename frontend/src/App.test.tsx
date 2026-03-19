@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -288,6 +288,9 @@ describe("App", () => {
     await screen.findByText("Will the Fed cut rates in June?");
     expect(screen.getByText("Price moved 20%")).toBeInTheDocument();
     expect(screen.getByText("Will CPI rise in April?")).toBeInTheDocument();
+    expect(screen.getByText("System Status")).toBeInTheDocument();
+    expect(screen.getByText("Healthy")).toBeInTheDocument();
+    expect(screen.getByText("Latest run duration")).toBeInTheDocument();
     expect(
       screen.getByText("Trade ingestion is not active yet; whale alerts are deferred."),
     ).toBeInTheDocument();
@@ -305,6 +308,18 @@ describe("App", () => {
     await screen.findAllByText("Will CPI rise in April?");
     expect(screen.getByText("Inflation market")).toBeInTheDocument();
     expect(screen.getByText("Volume jumped versus baseline")).toBeInTheDocument();
+  });
+
+  it("surfaces stronger signals first in the global feed", async () => {
+    installFetchMock();
+
+    render(<App />);
+
+    const panel = await screen.findByText("Interesting Right Now");
+    const signalContainer = panel.closest(".panel");
+    expect(signalContainer).not.toBeNull();
+    const titles = within(signalContainer as HTMLElement).getAllByText(/Will .* in .*\?/i);
+    expect(titles[0]).toHaveTextContent("Will CPI rise in April?");
   });
 
   it("updates search input and refetches market list", async () => {
@@ -344,5 +359,47 @@ describe("App", () => {
 
     await screen.findByText("Unable to load markets right now.");
     expect(screen.getByText("Unable to load markets right now.")).toBeInTheDocument();
+  });
+
+  it("renders a friendly empty state when no pipeline runs exist", async () => {
+    const mockFetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/health")) {
+        return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
+      }
+      if (url.includes("/markets?")) {
+        return Promise.resolve(new Response(JSON.stringify(marketsResponse), { status: 200 }));
+      }
+      if (url.endsWith("/markets/market-1")) {
+        return Promise.resolve(new Response(JSON.stringify(marketDetailResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/history")) {
+        return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/signals")) {
+        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+      }
+      if (url.includes("/signals?")) {
+        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+      }
+      if (url.includes("/runs?")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ items: [], limit: 6, count: 0 }), { status: 200 }),
+        );
+      }
+      if (url.includes("/whale-alerts")) {
+        return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
+      }
+
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    render(<App />);
+
+    await screen.findByText("No ingestion runs recorded yet. Start the pipeline to populate status metrics and freshness data.");
+    expect(screen.getByText("No ingestion runs recorded yet. Start the pipeline to populate status metrics and freshness data.")).toBeInTheDocument();
   });
 });

@@ -7,6 +7,7 @@ type SignalListProps = {
   onSelectMarket?: (marketId: string) => void;
   selectedMarketId?: string | null;
   showMarketContext?: boolean;
+  sortByStrength?: boolean;
 };
 
 function marketLabel(signal: SignalItem) {
@@ -42,17 +43,22 @@ export function SignalList({
   onSelectMarket,
   selectedMarketId = null,
   showMarketContext = false,
+  sortByStrength = false,
 }: SignalListProps) {
+  const visibleSignals = sortByStrength
+    ? [...signals].sort((left, right) => right.signal_strength - left.signal_strength)
+    : signals;
+
   return (
     <div className="panel">
       <div className="panel-header">
         <h3>{title}</h3>
       </div>
-      {signals.length === 0 ? (
+      {visibleSignals.length === 0 ? (
         <div className="list-state">{emptyMessage}</div>
       ) : (
         <ul className="signal-list">
-          {signals.map((signal) => {
+          {visibleSignals.map((signal) => {
             const clickable = Boolean(onSelectMarket);
             const selected = selectedMarketId === signal.market_id;
             const marketStatus = statusLabel(signal);
@@ -91,11 +97,11 @@ export function SignalList({
                 ) : null}
                 <div className="signal-card-main">
                   <span className="signal-type">{signal.signal_type}</span>
-                  <span className="signal-strength">
+                  <span className="signal-strength signal-strength-pill">
                     {signal.signal_strength.toFixed(2)}
                   </span>
                 </div>
-                <p>{signal.summary ?? "No summary available."}</p>
+                <p className="signal-summary">{signal.summary ?? "No summary available."}</p>
                 <span className="signal-time">
                   {new Date(signal.detected_at).toLocaleString()}
                 </span>

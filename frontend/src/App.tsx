@@ -3,9 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { getHealth, getMarkets, getRuns, getSignals } from "./api/client";
 import { MarketDetail } from "./components/MarketDetail";
 import { MarketList } from "./components/MarketList";
-import { RunsPanel } from "./components/RunsPanel";
 import { SearchControls } from "./components/SearchControls";
 import { SignalList } from "./components/SignalList";
+import { SystemStatusPanel } from "./components/SystemStatusPanel";
 import type { HealthResponse, MarketSummary, RunItem, SignalItem } from "./types";
 
 const PAGE_SIZE = 20;
@@ -229,8 +229,15 @@ export default function App() {
               onSelectMarket={setSelectedMarketId}
               selectedMarketId={selectedMarketId}
               showMarketContext
+              sortByStrength
             />
-            <RunsPanel runs={runs} loading={runsLoading} error={runsError} />
+            <SystemStatusPanel
+              runs={runs}
+              health={health}
+              loading={runsLoading}
+              error={runsError}
+              healthError={healthError}
+            />
           </div>
           <MarketDetail marketId={selectedMarketId} />
         </section>

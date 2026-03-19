@@ -66,13 +66,18 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
   if (!marketId) {
     return (
       <div className="panel detail-empty">
-        Select a market to inspect its chart and signals.
+        Select a market from the browser or signal feed to inspect its chart,
+        metadata, and recent alerts.
       </div>
     );
   }
 
   if (loading) {
-    return <div className="panel detail-empty">Loading market detail...</div>;
+    return (
+      <div className="panel detail-empty">
+        Loading market detail, chart history, and recent signals...
+      </div>
+    );
   }
 
   if (error) {
@@ -91,13 +96,9 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
           <p>{market.description ?? "No description available."}</p>
         </div>
         <div className="detail-stats">
-          <div className="stat-card">
-            <span className="stat-label">Market ID</span>
-            <span className="stat-value">{market.market_id}</span>
-          </div>
-          <div className="stat-card">
+          <div className="stat-card stat-card-emphasis">
             <span className="stat-label">Latest Price</span>
-            <span className="stat-value">
+            <span className="stat-value stat-value-emphasis">
               {market.latest_snapshot?.last_trade_price !== null &&
               market.latest_snapshot
                 ? market.latest_snapshot.last_trade_price.toFixed(2)
@@ -105,10 +106,23 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
             </span>
           </div>
           <div className="stat-card">
+            <span className="stat-label">Market ID</span>
+            <span className="stat-value">{market.market_id}</span>
+          </div>
+          <div className="stat-card">
             <span className="stat-label">Latest Volume</span>
             <span className="stat-value">
               {market.latest_snapshot?.volume !== null && market.latest_snapshot
                 ? market.latest_snapshot.volume.toFixed(2)
+                : "--"}
+            </span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Latest Liquidity</span>
+            <span className="stat-value">
+              {market.latest_snapshot?.liquidity !== null &&
+              market.latest_snapshot
+                ? market.latest_snapshot.liquidity.toFixed(2)
                 : "--"}
             </span>
           </div>
@@ -124,6 +138,7 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
       <div className="panel">
         <div className="panel-header">
           <h3>Historical Price Chart</h3>
+          <p>Recent probability movement from stored market snapshots.</p>
         </div>
         <PriceChart history={history} />
       </div>
