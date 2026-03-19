@@ -44,9 +44,38 @@ def seed_market_data(session_factory) -> None:
     payload["markets"][0]["liquidity"] = "20"
     payload["markets"][0]["active"] = True
     payload["markets"][0]["closed"] = False
+    second_payload = {
+        "id": "event-2",
+        "slug": "btc-market",
+        "title": "BTC Market",
+        "question": "Will BTC rally this week?",
+        "category": "Crypto",
+        "active": True,
+        "closed": False,
+        "markets": [
+            {
+                "id": "market-2",
+                "slug": "will-btc-rally-this-week",
+                "question": "Will BTC rally this week?",
+                "outcomes": "[\"Yes\", \"No\"]",
+                "outcomePrices": "[\"0.51\", \"0.49\"]",
+                "clobTokenIds": "[\"btc-yes\", \"btc-no\"]",
+                "umaResolutionStatuses": "[\"pending\", \"pending\"]",
+                "volume": "80",
+                "liquidity": "30",
+                "active": True,
+                "closed": False,
+                "updatedAt": "2026-03-04T15:30:00Z",
+            }
+        ],
+    }
     with session_factory() as session:
         with session.begin():
-            persist_events(session, [payload], observed_at=datetime(2026, 3, 18, tzinfo=timezone.utc))
+            persist_events(
+                session,
+                [payload, second_payload],
+                observed_at=datetime(2026, 3, 18, tzinfo=timezone.utc),
+            )
         market = get_market_by_api_id(session, "market-1")
         snapshot = get_market_history(session, "market-1")[0]
         session.add(
@@ -101,10 +130,11 @@ def test_markets_endpoints() -> None:
     history_response = client.get("/markets/market-1/history")
 
     assert list_response.status_code == 200
-    assert list_response.json()["count"] == 1
-    assert list_response.json()["available_categories"] == ["Economy"]
-    assert list_response.json()["items"][0]["category"] == "Economy"
-    assert list_response.json()["items"][0]["has_signals"] is True
+    assert list_response.json()["count"] == 2
+    assert list_response.json()["available_categories"] == ["Crypto", "Economy"]
+    signal_flags = {item["market_id"]: item["has_signals"] for item in list_response.json()["items"]}
+    assert signal_flags["market-1"] is True
+    assert signal_flags["market-2"] is False
     assert detail_response.status_code == 200
     assert detail_response.json()["market_id"] == "market-1"
     assert history_response.status_code == 200
@@ -129,8 +159,10 @@ def test_markets_filter_and_404() -> None:
     assert category_filtered.json()["count"] == 1
     assert has_signals_filtered.status_code == 200
     assert has_signals_filtered.json()["count"] == 1
+    assert has_signals_filtered.json()["items"][0]["market_id"] == "market-1"
     assert signal_type_filtered.status_code == 200
     assert signal_type_filtered.json()["count"] == 1
+    assert signal_type_filtered.json()["items"][0]["market_id"] == "market-1"
     assert missing.status_code == 404
     app.dependency_overrides.clear()
 

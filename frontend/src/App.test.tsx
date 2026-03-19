@@ -30,7 +30,7 @@ const marketsResponse = {
       slug: "will-cpi-rise-april",
       question: "Will CPI rise in April?",
       category: "Economy",
-      has_signals: true,
+      has_signals: false,
       active: true,
       closed: false,
       latest_price: 0.61,
@@ -304,6 +304,19 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the signals badge only for markets that truly have signals", async () => {
+    installFetchMock();
+
+    render(<App />);
+
+    await screen.findByText("Will the Fed cut rates in June?");
+    const signalBadges = screen.getAllByText("Signals");
+
+    expect(signalBadges).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Will the Fed cut rates in June\?/i })).toHaveTextContent("Signals");
+    expect(screen.getByRole("button", { name: /Will CPI rise in April\?/i })).not.toHaveTextContent("Signals");
+  });
+
   it("clicking a signal selects that market and updates the detail panel", async () => {
     installFetchMock();
 
@@ -369,6 +382,122 @@ describe("App", () => {
         ),
       );
     });
+  });
+
+  it("with signals only excludes markets without signals", async () => {
+    const mockFetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/health")) {
+        return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
+      }
+      if (url.includes("/markets?") && url.includes("has_signals=true")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...marketsResponse,
+              items: [marketsResponse.items[0]],
+              count: 1,
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes("/markets?")) {
+        return Promise.resolve(new Response(JSON.stringify(marketsResponse), { status: 200 }));
+      }
+      if (url.endsWith("/markets/market-1")) {
+        return Promise.resolve(new Response(JSON.stringify(marketDetailResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/history")) {
+        return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/signals")) {
+        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+      }
+      if (url.includes("/signals?")) {
+        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+      }
+      if (url.includes("/runs?")) {
+        return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
+      }
+      if (url.includes("/whale-alerts")) {
+        return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
+      }
+
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    render(<App />);
+    await screen.findByText("Will the Fed cut rates in June?");
+
+    fireEvent.click(screen.getByLabelText("With signals only"));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /Will CPI rise in April\?/i })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /Will the Fed cut rates in June\?/i })).toBeInTheDocument();
+  });
+
+  it("signal type filtering only matches markets with that signal type", async () => {
+    const mockFetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/health")) {
+        return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
+      }
+      if (url.includes("/markets?") && url.includes("signal_type=price_movement")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ...marketsResponse,
+              items: [marketsResponse.items[0]],
+              count: 1,
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes("/markets?")) {
+        return Promise.resolve(new Response(JSON.stringify(marketsResponse), { status: 200 }));
+      }
+      if (url.endsWith("/markets/market-1")) {
+        return Promise.resolve(new Response(JSON.stringify(marketDetailResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/history")) {
+        return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/signals")) {
+        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+      }
+      if (url.includes("/signals?")) {
+        return Promise.resolve(new Response(JSON.stringify(signalsResponse), { status: 200 }));
+      }
+      if (url.includes("/runs?")) {
+        return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
+      }
+      if (url.includes("/whale-alerts")) {
+        return Promise.resolve(new Response(JSON.stringify(whaleResponse), { status: 200 }));
+      }
+
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    render(<App />);
+    await screen.findByText("Will the Fed cut rates in June?");
+
+    fireEvent.change(screen.getByLabelText("Signal type filter"), {
+      target: { value: "price_movement" },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /Will CPI rise in April\?/i })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /Will the Fed cut rates in June\?/i })).toBeInTheDocument();
   });
 
   it("marks the selected market row clearly in the browser", async () => {

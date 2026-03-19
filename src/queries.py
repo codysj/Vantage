@@ -4,7 +4,7 @@ import argparse
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import and_, desc, exists, func, literal, or_, select
+from sqlalchemy import and_, desc, func, literal, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from src.db import SessionLocal
@@ -58,16 +58,30 @@ def get_markets_for_api(
     )
 
     category_expr = func.coalesce(Event.category, primary_tag_subquery.c.primary_tag_label)
-    has_signals_exists = exists(
-        select(literal(1)).select_from(Signal).where(Signal.market_id == Market.id)
+    signal_presence_subquery = (
+        select(Signal.market_id.label("market_id"))
+        .distinct()
+        .subquery()
     )
+    signal_type_subquery = None
+    if signal_type:
+        signal_type_subquery = (
+            select(
+                Signal.market_id.label("market_id"),
+                Signal.signal_type.label("signal_type"),
+            )
+            .distinct()
+            .where(Signal.signal_type == signal_type)
+            .subquery()
+        )
+    has_signals_expr = signal_presence_subquery.c.market_id.is_not(None)
 
     stmt = (
         select(
             Market,
             MarketSnapshot,
             category_expr.label("category"),
-            has_signals_exists.label("has_signals"),
+            has_signals_expr.label("has_signals"),
         )
         .outerjoin(latest_snapshot_subquery, latest_snapshot_subquery.c.market_id == Market.id)
         .outerjoin(
@@ -77,6 +91,7 @@ def get_markets_for_api(
         )
         .join(Event, Market.event_id == Event.id)
         .outerjoin(primary_tag_subquery, primary_tag_subquery.c.event_id == Event.id)
+        .outerjoin(signal_presence_subquery, signal_presence_subquery.c.market_id == Market.id)
     )
     if slug:
         stmt = stmt.where(Market.slug == slug)
@@ -98,18 +113,18 @@ def get_markets_for_api(
         normalized_category = category.strip().lower()
         stmt = stmt.where(func.lower(category_expr) == normalized_category)
     if has_signals is True:
-        stmt = stmt.where(has_signals_exists)
+        stmt = stmt.where(has_signals_expr)
     if signal_type:
-        stmt = stmt.where(
-            exists(
-                select(literal(1))
-                .select_from(Signal)
-                .where(and_(Signal.market_id == Market.id, Signal.signal_type == signal_type))
-            )
-        )
+        stmt = stmt.outerjoin(
+            signal_type_subquery,
+            and_(
+                signal_type_subquery.c.market_id == Market.id,
+                signal_type_subquery.c.signal_type == signal_type,
+            ),
+        ).where(signal_type_subquery.c.market_id.is_not(None))
 
     stmt = stmt.order_by(
-        desc(has_signals_exists),
+        desc(has_signals_expr),
         Market.slug.is_(None),
         Market.slug,
         Market.market_id,
