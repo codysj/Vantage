@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -9,8 +10,17 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from src.api import app, get_db
+from src.config import settings
 from src.models import Base
-from src.models import IngestionRun, Signal, Trade, WhaleEvent
+from src.models import (
+    IngestionRun,
+    MarketSentimentSummary,
+    SentimentDocument,
+    SentimentScore,
+    Signal,
+    Trade,
+    WhaleEvent,
+)
 from src.queries import get_market_by_api_id, get_market_history
 from tests.test_normalize import sample_event_payload
 from src.ingest import persist_events
@@ -142,6 +152,38 @@ def seed_market_data(session_factory) -> None:
                 records_skipped=0,
                 integrity_errors=0,
                 duration_ms=5000,
+            )
+        )
+        sentiment_document = SentimentDocument(
+            market_id=market.id,
+            source_name="Reuters",
+            url="https://example.com/fed-rates",
+            title="Fed outlook remains in focus",
+            snippet="Markets continue to watch the Fed closely.",
+            raw_text="Fed outlook remains in focus Markets continue to watch the Fed closely.",
+            published_at=snapshot.observed_at,
+        )
+        session.add(sentiment_document)
+        session.flush()
+        session.add(
+            SentimentScore(
+                document_id=sentiment_document.id,
+                model_name=settings.sentiment_model_name,
+                sentiment_label="positive",
+                sentiment_confidence=Decimal("0.88"),
+                sentiment_value=Decimal("0.88"),
+                scored_at=snapshot.observed_at,
+            )
+        )
+        session.add(
+            MarketSentimentSummary(
+                market_id=market.id,
+                avg_sentiment=Decimal("0.88"),
+                doc_count=1,
+                pos_count=1,
+                neg_count=0,
+                neutral_count=0,
+                last_computed_at=snapshot.observed_at,
             )
         )
         session.commit()
@@ -288,4 +330,111 @@ def test_whale_endpoints() -> None:
     assert summary.json()["total_whale_events"] == 1
     assert summary.json()["has_recent_whale_activity"] is True
     assert missing.status_code == 404
+    app.dependency_overrides.clear()
+
+
+def test_sentiment_endpoints(monkeypatch) -> None:
+    session_factory = create_api_session_factory()
+    seed_market_data(session_factory)
+
+    def stub_sentiment(session, market_id):
+        market = get_market_by_api_id(session, market_id)
+        if market is None:
+            return None
+        summary = market.sentiment_summary
+        return SimpleNamespace(market=market, summary=summary, from_cache=True)
+
+    monkeypatch.setattr("src.api.get_or_compute_market_sentiment", stub_sentiment)
+    client = create_test_client(session_factory)
+
+    summary = client.get("/markets/market-1/sentiment")
+    documents = client.get("/markets/market-1/sentiment/documents")
+    missing = client.get("/markets/does-not-exist/sentiment")
+
+    assert summary.status_code == 200
+    assert summary.json()["market_id"] == "market-1"
+    assert summary.json()["status"] == "ok"
+    assert summary.json()["avg_sentiment"] == 0.88
+    assert summary.json()["doc_count"] == 1
+    assert documents.status_code == 200
+    assert documents.json()["status"] == "ok"
+    assert documents.json()["count"] == 1
+    assert documents.json()["items"][0]["sentiment_label"] == "positive"
+    assert missing.status_code == 404
+    app.dependency_overrides.clear()
+
+
+def test_sentiment_empty_state_endpoint(monkeypatch) -> None:
+    session_factory = create_api_session_factory()
+    seed_market_data(session_factory)
+
+    def stub_empty_sentiment(session, market_id):
+        market = get_market_by_api_id(session, market_id)
+        if market is None:
+            return None
+        summary = market.sentiment_summary
+        summary.avg_sentiment = Decimal("0")
+        summary.doc_count = 0
+        summary.pos_count = 0
+        summary.neg_count = 0
+        summary.neutral_count = 0
+        return SimpleNamespace(market=market, summary=summary, from_cache=False)
+
+    monkeypatch.setattr("src.api.get_or_compute_market_sentiment", stub_empty_sentiment)
+    monkeypatch.setattr("src.api.get_market_sentiment_documents", lambda db, market_id, model_name: [])
+    client = create_test_client(session_factory)
+
+    summary = client.get("/markets/market-1/sentiment")
+    documents = client.get("/markets/market-1/sentiment/documents")
+
+    assert summary.status_code == 200
+    assert summary.json()["status"] == "empty"
+    assert summary.json()["message"] == "No recent headlines found for this market."
+    assert documents.status_code == 200
+    assert documents.json()["status"] == "empty"
+    assert documents.json()["count"] == 0
+    app.dependency_overrides.clear()
+
+
+def test_sentiment_upstream_failure_returns_structured_503(monkeypatch) -> None:
+    from src.sentiment import SentimentUpstreamError
+
+    session_factory = create_api_session_factory()
+    seed_market_data(session_factory)
+    client = create_test_client(session_factory)
+
+    monkeypatch.setattr(
+        "src.api.get_or_compute_market_sentiment",
+        lambda db, market_id: (_ for _ in ()).throw(
+            SentimentUpstreamError("Headline source is temporarily unavailable.")
+        ),
+    )
+
+    response = client.get("/markets/market-1/sentiment")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "sentiment_upstream_unavailable"
+    assert response.json()["detail"]["message"] == "Headline source is temporarily unavailable."
+    app.dependency_overrides.clear()
+
+
+def test_sentiment_model_failure_returns_structured_503(monkeypatch) -> None:
+    from src.sentiment import SentimentModelError
+
+    session_factory = create_api_session_factory()
+    seed_market_data(session_factory)
+    client = create_test_client(session_factory)
+
+    monkeypatch.setattr(
+        "src.api.get_or_compute_market_sentiment",
+        lambda db, market_id: (_ for _ in ()).throw(
+            SentimentModelError("Sentiment model is temporarily unavailable.")
+        ),
+    )
+
+    response = client.get("/markets/market-1/sentiment/documents")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "sentiment_model_unavailable"
+    assert response.json()["detail"]["message"] == "Sentiment model is temporarily unavailable."
     app.dependency_overrides.clear()

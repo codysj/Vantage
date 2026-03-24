@@ -114,6 +114,13 @@ class Market(TimestampMixin, Base):
     trades: Mapped[list["Trade"]] = relationship(back_populates="market")
     signals: Mapped[list["Signal"]] = relationship(back_populates="market")
     whale_events: Mapped[list["WhaleEvent"]] = relationship(back_populates="market")
+    sentiment_documents: Mapped[list["SentimentDocument"]] = relationship(
+        back_populates="market"
+    )
+    sentiment_summary: Mapped["MarketSentimentSummary | None"] = relationship(
+        back_populates="market",
+        uselist=False,
+    )
 
 
 class MarketSnapshot(Base):
@@ -302,3 +309,68 @@ class WhaleEvent(Base):
 
     market: Mapped["Market"] = relationship(back_populates="whale_events")
     trade: Mapped["Trade"] = relationship(back_populates="whale_events")
+
+
+class SentimentDocument(Base):
+    __tablename__ = "sentiment_documents"
+    __table_args__ = (
+        UniqueConstraint("url", name="uq_sentiment_documents_url"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), nullable=False, index=True)
+    source_name: Mapped[str | None] = mapped_column(String(255))
+    url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    title: Mapped[str | None] = mapped_column(Text)
+    snippet: Mapped[str | None] = mapped_column(Text)
+    raw_text: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    market: Mapped["Market"] = relationship(back_populates="sentiment_documents")
+    scores: Mapped[list["SentimentScore"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+
+class SentimentScore(Base):
+    __tablename__ = "sentiment_scores"
+    __table_args__ = (
+        UniqueConstraint("document_id", "model_name", name="uq_sentiment_scores_doc_model"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("sentiment_documents.id"), nullable=False, index=True
+    )
+    model_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    sentiment_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    sentiment_confidence: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    sentiment_value: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    scored_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    document: Mapped["SentimentDocument"] = relationship(back_populates="scores")
+
+
+class MarketSentimentSummary(Base):
+    __tablename__ = "market_sentiment_summary"
+    __table_args__ = (
+        UniqueConstraint("market_id", name="uq_market_sentiment_summary_market_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), nullable=False, index=True)
+    avg_sentiment: Mapped[Decimal] = mapped_column(
+        Numeric(20, 8), nullable=False, default=Decimal("0")
+    )
+    doc_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    pos_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    neg_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    neutral_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    last_computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    market: Mapped["Market"] = relationship(back_populates="sentiment_summary")

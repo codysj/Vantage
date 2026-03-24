@@ -1,6 +1,6 @@
-# Information Edge Phase 5: Frontend Foundation
+# Information Edge Phase 6: NLP Sentiment Layer
 
-This repo now covers Phase 1 through Phase 5 of Information Edge plus the whale tracker: it can fetch Polymarket events and trades, store and analyze them, run a repeatable ingestion pipeline, generate signals and whale events, expose market analytics through a read-only FastAPI backend, and render a React dashboard on top of that backend.
+This repo now covers Phase 1 through Phase 6 of Information Edge plus the whale tracker: it can fetch Polymarket events and trades, store and analyze them, run a repeatable ingestion pipeline, generate signals and whale events, expose market analytics through a read-only FastAPI backend, render a React dashboard on top of that backend, and enrich markets with on-demand cached news sentiment.
 
 ## What Phase 5 Adds
 
@@ -12,15 +12,15 @@ This repo now covers Phase 1 through Phase 5 of Information Edge plus the whale 
 - Whale events persisted and exposed through the API
 - Whale activity surfaced in the dashboard and market detail view
 - A lightweight pipeline-runs observability panel
+- On-demand cached market sentiment from recent headlines
 - Frontend smoke/integration tests with Vitest + React Testing Library
 
 ## What Still Does Not Include
 
-- Sentiment or NLP overlays
 - Docker or deployment tooling
 - CI/CD automation
 - Alerting or notification integrations
-- Machine learning or statistical modeling
+- Full NLP dashboards or chart overlays
 - Real-time streaming
 
 ## Schema Overview
@@ -53,6 +53,15 @@ Stores the structured outputs of the new Phase 3 analytics layer. Each row repre
 
 ### `whale_events`
 Stores unusually large trades detected relative to a market's own recent trade-size baseline. Each whale event links to the triggering trade and stores the baseline statistics, detection score, and structured metadata used by the API and UI.
+
+### `sentiment_documents`
+Stores deduplicated headline/snippet documents fetched on demand for one market.
+
+### `sentiment_scores`
+Stores per-document sentiment outputs for the configured HuggingFace model.
+
+### `market_sentiment_summary`
+Stores the cached market-level aggregate sentiment summary and last computed time used by the TTL cache.
 
 ## Deduplication Strategy
 
@@ -178,6 +187,12 @@ The backend now includes CORS support for the local Vite dev server. By default:
 
 If your frontend runs from a different origin, update `API_CORS_ORIGINS` in `.env`.
 
+Sentiment requires a GNews API key:
+
+```text
+GNEWS_API_KEY=your_key_here
+```
+
 ## Running The Frontend
 
 Start the React dashboard from the `frontend/` directory:
@@ -277,6 +292,8 @@ Core read endpoints now include:
 - `GET /markets/{market_id}`
 - `GET /markets/{market_id}/history`
 - `GET /markets/{market_id}/signals`
+- `GET /markets/{market_id}/sentiment`
+- `GET /markets/{market_id}/sentiment/documents`
 - `GET /signals`
 - `GET /runs`
 - `GET /runs/{run_id}`
@@ -292,6 +309,8 @@ curl http://127.0.0.1:8000/health
 curl "http://127.0.0.1:8000/markets?limit=10&active=true"
 curl http://127.0.0.1:8000/markets/market-1
 curl http://127.0.0.1:8000/markets/market-1/history
+curl http://127.0.0.1:8000/markets/market-1/sentiment
+curl http://127.0.0.1:8000/markets/market-1/sentiment/documents
 curl "http://127.0.0.1:8000/signals?signal_type=price_movement"
 curl "http://127.0.0.1:8000/signals?signal_type=whale"
 curl http://127.0.0.1:8000/whales/recent
@@ -316,6 +335,7 @@ The market detail view shows:
 - historical price chart from `/markets/{market_id}/history`
 - recent market-specific signals from `/markets/{market_id}/signals`
 - whale summary and history from `/markets/{market_id}/whales` and `/markets/{market_id}/whale-summary`
+- on-demand sentiment summary and headline list from `/markets/{market_id}/sentiment`
 
 This gives the project a usable full-stack demo surface without skipping ahead into sentiment, auth, or write APIs.
 
@@ -381,6 +401,17 @@ python -m src.whales backfill
 python -m src.whales backfill --market-id <MARKET_ID>
 ```
 
+## Sentiment Layer
+
+Sentiment is an on-demand enrichment layer, not part of the scheduled ingestion pipeline.
+
+- the frontend requests sentiment only when the user clicks `Load sentiment`
+- the backend checks `market_sentiment_summary`
+- if the cached summary is still within `SENTIMENT_TTL_HOURS`, it returns immediately
+- otherwise it fetches recent GNews headlines, deduplicates documents by URL, scores only unscored docs for the configured model, updates the summary, and caches the result
+
+This keeps repeat access fast without adding another background worker.
+
 ## Backend API Design
 
 The FastAPI layer is intentionally thin:
@@ -438,6 +469,13 @@ Environment variables now include:
 - `WHALE_ZSCORE_THRESHOLD`
 - `WHALE_MEDIAN_MULTIPLIER_THRESHOLD`
 - `WHALE_ABSOLUTE_MIN_NOTIONAL`
+- `GNEWS_API_KEY`
+- `GNEWS_BASE_URL`
+- `GNEWS_SEARCH_PATH`
+- `SENTIMENT_TTL_HOURS`
+- `SENTIMENT_MAX_DOCS_PER_MARKET`
+- `SENTIMENT_MODEL_NAME`
+- `SENTIMENT_REQUEST_TIMEOUT_SECONDS`
 
 ## Design Notes
 
@@ -447,9 +485,10 @@ Environment variables now include:
 - The code favors small helper functions and explicit data flow over framework-heavy abstractions.
 - Scheduling is intentionally in-process and lightweight so the pipeline stays easy to explain in an interview.
 - Signal detection is also intentionally lightweight: clear thresholds, recent-vs-baseline comparisons, and explainable metadata instead of heavier statistical or ML models.
+- Sentiment uses lazy caching by design so markets are enriched only when needed, and repeated reads stay fast.
 - The backend API is read-only by design in this phase, so it stays focused on exposing the analytics system rather than becoming a full admin platform.
 - The frontend is also intentionally simple: plain `fetch`, one main dashboard view, lightweight CSS, and Recharts for one clear historical probability chart.
 
 ## Known Limitation
 
-The pipeline now ingests events plus recent public trades, but it still relies on Polymarket's read APIs rather than authenticated order/trader infrastructure. Sentiment/NLP overlays, richer frontend interactions, auth, deployment, and production infra remain deferred to later phases.
+The pipeline now ingests events plus recent public trades, but it still relies on Polymarket's read APIs rather than authenticated order/trader infrastructure. Sentiment currently uses headline/snippet text only, requires a configured GNews API key, and does not yet render chart overlays or richer topic clustering. Auth, deployment, and production infra remain deferred to later phases.

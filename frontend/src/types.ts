@@ -157,3 +157,40 @@ export type WhaleAlertsResponse = {
   message: string;
   alerts: WhaleEvent[];
 };
+
+export type MarketSentimentSummary = {
+  market_id: string;
+  status: "ok" | "empty";
+  message: string | null;
+  avg_sentiment: number;
+  doc_count: number;
+  pos_count: number;
+  neg_count: number;
+  neutral_count: number;
+  last_updated: string;
+};
+
+export type SentimentDocument = {
+  id: number;
+  source_name: string | null;
+  url: string;
+  title: string | null;
+  snippet: string | null;
+  published_at: string | null;
+  sentiment_label: string | null;
+  sentiment_confidence: number | null;
+  sentiment_value: number | null;
+};
+
+export type SentimentDocumentListResponse = {
+  market_id: string;
+  status: "ok" | "empty";
+  message: string | null;
+  items: SentimentDocument[];
+  count: number;
+};
+
+export type ApiErrorDetail = {
+  code?: string;
+  message?: string;
+};

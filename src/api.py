@@ -13,10 +13,13 @@ from src.api_schemas import (
     HealthResponse,
     MarketDetailResponse,
     MarketListResponse,
+    MarketSentimentSummaryResponse,
     MarketOutcomeResponse,
     MarketSummary,
     RunListResponse,
     RunResponse,
+    SentimentDocumentListResponse,
+    SentimentDocumentResponse,
     SignalListResponse,
     SignalResponse,
     SnapshotHistoryResponse,
@@ -36,6 +39,8 @@ from src.queries import (
     get_market_detail_for_api,
     get_market_history,
     get_market_signals,
+    get_market_sentiment_documents,
+    get_market_sentiment_summary,
     get_markets_for_api,
     get_market_whale_summary,
     get_market_whales,
@@ -44,9 +49,15 @@ from src.queries import (
     get_recent_whale_events,
     get_signal_feed,
 )
+from src.sentiment import (
+    SentimentConfigurationError,
+    SentimentModelError,
+    SentimentUpstreamError,
+    get_or_compute_market_sentiment,
+)
 
 
-API_VERSION = "0.5.0"
+API_VERSION = "0.6.0"
 
 app = FastAPI(
     title="Information Edge API",
@@ -171,6 +182,48 @@ def _run_response(run: IngestionRun) -> RunResponse:
         integrity_errors=run.integrity_errors,
         error_message=run.error_message,
     )
+
+
+def _sentiment_summary_response(summary) -> MarketSentimentSummaryResponse:
+    is_empty = summary.doc_count == 0
+    return MarketSentimentSummaryResponse(
+        market_id=summary.market.market_id,
+        status="empty" if is_empty else "ok",
+        message="No recent headlines found for this market." if is_empty else None,
+        avg_sentiment=float(summary.avg_sentiment),
+        doc_count=summary.doc_count,
+        pos_count=summary.pos_count,
+        neg_count=summary.neg_count,
+        neutral_count=summary.neutral_count,
+        last_updated=summary.last_computed_at,
+    )
+
+
+def _raise_sentiment_http_error(exc: Exception) -> None:
+    if isinstance(exc, SentimentConfigurationError):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "sentiment_config_error",
+                "message": "Sentiment is not configured yet.",
+            },
+        ) from exc
+    if isinstance(exc, SentimentUpstreamError):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "sentiment_upstream_unavailable",
+                "message": "Headline source is temporarily unavailable.",
+            },
+        ) from exc
+    if isinstance(exc, SentimentModelError):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "sentiment_model_unavailable",
+                "message": "Sentiment model is temporarily unavailable.",
+            },
+        ) from exc
 
 
 @app.get("/", response_model=ApiIndexResponse, summary="API index")
@@ -309,6 +362,67 @@ def get_market_history_api(
                 liquidity=_decimal_to_float(row.liquidity),
             )
             for row in rows
+        ],
+        count=len(rows),
+    )
+
+
+@app.get(
+    "/markets/{market_id}/sentiment",
+    response_model=MarketSentimentSummaryResponse,
+    summary="Get market sentiment summary",
+)
+def get_market_sentiment_api(
+    market_id: str,
+    db: Session = Depends(get_db),
+) -> MarketSentimentSummaryResponse:
+    try:
+        result = get_or_compute_market_sentiment(db, market_id)
+    except (SentimentConfigurationError, SentimentUpstreamError, SentimentModelError) as exc:
+        _raise_sentiment_http_error(exc)
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Market not found.")
+
+    return _sentiment_summary_response(result.summary)
+
+
+@app.get(
+    "/markets/{market_id}/sentiment/documents",
+    response_model=SentimentDocumentListResponse,
+    summary="Get market sentiment documents",
+)
+def get_market_sentiment_documents_api(
+    market_id: str,
+    db: Session = Depends(get_db),
+) -> SentimentDocumentListResponse:
+    try:
+        result = get_or_compute_market_sentiment(db, market_id)
+    except (SentimentConfigurationError, SentimentUpstreamError, SentimentModelError) as exc:
+        _raise_sentiment_http_error(exc)
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Market not found.")
+
+    rows = get_market_sentiment_documents(db, market_id, settings.sentiment_model_name)
+    is_empty = len(rows) == 0
+    return SentimentDocumentListResponse(
+        market_id=market_id,
+        status="empty" if is_empty else "ok",
+        message="No recent headlines found for this market." if is_empty else None,
+        items=[
+            SentimentDocumentResponse(
+                id=document.id,
+                source_name=document.source_name,
+                url=document.url,
+                title=document.title,
+                snippet=document.snippet,
+                published_at=document.published_at,
+                sentiment_label=score.sentiment_label if score else None,
+                sentiment_confidence=float(score.sentiment_confidence) if score else None,
+                sentiment_value=float(score.sentiment_value) if score else None,
+            )
+            for document, score in rows
         ],
         count=len(rows),
     )

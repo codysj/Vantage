@@ -15,9 +15,12 @@ from src.models import (
     EventTag,
     IngestionRun,
     Market,
+    MarketSentimentSummary,
     MarketOutcome,
     MarketSnapshot,
     Signal,
+    SentimentDocument,
+    SentimentScore,
     Tag,
     Trade,
     WhaleEvent,
@@ -423,6 +426,39 @@ def get_market_signals(
     limit: int = 10,
 ) -> list[SignalFeedItem]:
     return get_signal_feed(session, limit=limit, market_id=market_id)
+
+
+def get_market_sentiment_summary(
+    session: Session,
+    market_id: str,
+) -> MarketSentimentSummary | None:
+    market = get_market_by_api_id(session, market_id)
+    if market is None:
+        return None
+    return session.execute(
+        select(MarketSentimentSummary).where(MarketSentimentSummary.market_id == market.id)
+    ).scalar_one_or_none()
+
+
+def get_market_sentiment_documents(
+    session: Session,
+    market_id: str,
+    model_name: str,
+) -> list[tuple[SentimentDocument, SentimentScore | None]]:
+    market = get_market_by_api_id(session, market_id)
+    if market is None:
+        return []
+    stmt = (
+        select(SentimentDocument, SentimentScore)
+        .outerjoin(
+            SentimentScore,
+            (SentimentScore.document_id == SentimentDocument.id)
+            & (SentimentScore.model_name == model_name),
+        )
+        .where(SentimentDocument.market_id == market.id)
+        .order_by(SentimentDocument.published_at.desc(), SentimentDocument.fetched_at.desc())
+    )
+    return list(session.execute(stmt).all())
 
 
 def build_parser() -> argparse.ArgumentParser:

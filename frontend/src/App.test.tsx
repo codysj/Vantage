@@ -255,6 +255,58 @@ const secondMarketWhaleSummaryResponse = {
   has_recent_whale_activity: false,
 };
 
+const sentimentSummaryResponse = {
+  market_id: "market-1",
+  status: "ok",
+  message: null,
+  avg_sentiment: 0.42,
+  doc_count: 2,
+  pos_count: 1,
+  neg_count: 0,
+  neutral_count: 1,
+  last_updated: "2026-03-18T12:02:00Z",
+};
+
+const secondMarketSentimentSummaryResponse = {
+  market_id: "market-2",
+  status: "empty",
+  message: "No recent headlines found for this market.",
+  avg_sentiment: 0,
+  doc_count: 0,
+  pos_count: 0,
+  neg_count: 0,
+  neutral_count: 0,
+  last_updated: "2026-03-18T12:02:00Z",
+};
+
+const sentimentDocumentsResponse = {
+  market_id: "market-1",
+  status: "ok",
+  message: null,
+  items: [
+    {
+      id: 1,
+      source_name: "Reuters",
+      url: "https://example.com/fed-rates",
+      title: "Fed outlook remains in focus",
+      snippet: "Markets continue to watch the Fed closely.",
+      published_at: "2026-03-18T11:30:00Z",
+      sentiment_label: "positive",
+      sentiment_confidence: 0.88,
+      sentiment_value: 0.88,
+    },
+  ],
+  count: 1,
+};
+
+const secondMarketSentimentDocumentsResponse = {
+  market_id: "market-2",
+  status: "empty",
+  message: "No recent headlines found for this market.",
+  items: [],
+  count: 0,
+};
+
 function installFetchMock(overrides?: {
   history?: typeof historyResponse;
   signals?: typeof marketSignalsResponse;
@@ -263,6 +315,8 @@ function installFetchMock(overrides?: {
   runs?: typeof runsResponse;
   marketWhales?: typeof marketWhalesResponse;
   whaleSummary?: typeof whaleSummaryResponse;
+  sentimentSummary?: typeof sentimentSummaryResponse;
+  sentimentDocuments?: typeof sentimentDocumentsResponse;
 }) {
   const mockFetch = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
@@ -379,6 +433,32 @@ function installFetchMock(overrides?: {
     if (url.includes("/markets/market-2/whale-summary")) {
       return Promise.resolve(
         new Response(JSON.stringify(secondMarketWhaleSummaryResponse), { status: 200 }),
+      );
+    }
+    if (url.includes("/markets/market-1/sentiment/documents")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(overrides?.sentimentDocuments ?? sentimentDocumentsResponse),
+          { status: 200 },
+        ),
+      );
+    }
+    if (url.includes("/markets/market-2/sentiment/documents")) {
+      return Promise.resolve(
+        new Response(JSON.stringify(secondMarketSentimentDocumentsResponse), { status: 200 }),
+      );
+    }
+    if (url.includes("/markets/market-1/sentiment")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(overrides?.sentimentSummary ?? sentimentSummaryResponse),
+          { status: 200 },
+        ),
+      );
+    }
+    if (url.includes("/markets/market-2/sentiment")) {
+      return Promise.resolve(
+        new Response(JSON.stringify(secondMarketSentimentSummaryResponse), { status: 200 }),
       );
     }
 
@@ -686,6 +766,109 @@ describe("App", () => {
     expect(screen.getByTestId("price-chart-mock")).toHaveTextContent("History points: 0");
     expect(screen.getByText("No recent signals for this market.")).toBeInTheDocument();
     expect(screen.getByText("No whale events detected for this market yet.")).toBeInTheDocument();
+  });
+
+  it("loads and renders market sentiment on demand", async () => {
+    const fetchMock = installFetchMock();
+
+    render(<App />);
+
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
+    fireEvent.click(screen.getByRole("button", { name: "Load sentiment" }));
+
+    await screen.findByText("Average sentiment");
+    expect(screen.getByText("Fed outlook remains in focus")).toBeInTheDocument();
+    expect(screen.getByText(/positive 0.88/i)).toBeInTheDocument();
+    const calls = fetchMock.mock.calls.map(([input]) => String(input));
+    const summaryIndex = calls.findIndex(
+      (url) => url.includes("/markets/market-1/sentiment") && !url.includes("/documents"),
+    );
+    const documentsIndex = calls.findIndex((url) =>
+      url.includes("/markets/market-1/sentiment/documents"),
+    );
+    expect(summaryIndex).toBeGreaterThan(-1);
+    expect(documentsIndex).toBeGreaterThan(summaryIndex);
+  });
+
+  it("renders a clean empty sentiment state instead of the generic error", async () => {
+    installFetchMock();
+
+    render(<App />);
+
+    const list = await findMarketList();
+    fireEvent.click(getMarketButton(list, /Will CPI rise in April\?/i));
+    await screen.findByText("Inflation market");
+    fireEvent.click(screen.getByRole("button", { name: "Load sentiment" }));
+
+    await screen.findByText("No recent headlines found for this market.");
+    expect(screen.queryByText("Unable to load sentiment right now.")).not.toBeInTheDocument();
+  });
+
+  it("renders structured sentiment availability errors cleanly", async () => {
+    const mockFetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/health")) {
+        return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
+      }
+      if (url.includes("/markets?")) {
+        return Promise.resolve(new Response(JSON.stringify(marketsResponse), { status: 200 }));
+      }
+      if (url.endsWith("/markets/market-1")) {
+        return Promise.resolve(new Response(JSON.stringify(marketDetailResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/history")) {
+        return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/signals")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(marketSignalsResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/signals?")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(globalSignalsResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/runs?")) {
+        return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/whales")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(marketWhalesResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/markets/market-1/whale-summary")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(whaleSummaryResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/markets/market-1/sentiment")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              detail: {
+                code: "sentiment_upstream_unavailable",
+                message: "Headline source is temporarily unavailable.",
+              },
+            }),
+            { status: 503 },
+          ),
+        );
+      }
+
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    render(<App />);
+
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
+    fireEvent.click(screen.getByRole("button", { name: "Load sentiment" }));
+
+    await screen.findByText("Headline source is temporarily unavailable.");
+    expect(screen.queryByText("Unable to load sentiment right now.")).not.toBeInTheDocument();
   });
 
   it("renders error state when market fetch fails", async () => {

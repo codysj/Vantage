@@ -170,3 +170,35 @@ class WhaleAlertsResponse(BaseModel):
     status: str
     message: str
     alerts: list[WhaleEventResponse]
+
+
+class MarketSentimentSummaryResponse(BaseModel):
+    market_id: str
+    status: str
+    message: str | None = None
+    avg_sentiment: float
+    doc_count: int
+    pos_count: int
+    neg_count: int
+    neutral_count: int
+    last_updated: datetime
+
+
+class SentimentDocumentResponse(BaseModel):
+    id: int
+    source_name: str | None = None
+    url: str
+    title: str | None = None
+    snippet: str | None = None
+    published_at: datetime | None = None
+    sentiment_label: str | None = None
+    sentiment_confidence: float | None = None
+    sentiment_value: float | None = None
+
+
+class SentimentDocumentListResponse(BaseModel):
+    market_id: str
+    status: str
+    message: str | None = None
+    items: list[SentimentDocumentResponse]
+    count: int

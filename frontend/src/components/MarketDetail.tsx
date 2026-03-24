@@ -14,6 +14,7 @@ import {
 } from "../utils/format";
 import { PriceChart } from "./PriceChart";
 import { SignalList } from "./SignalList";
+import { SentimentPanel } from "./SentimentPanel";
 import { WhaleAlertsPanel } from "./WhaleAlertsPanel";
 
 type MarketDetailProps = {
@@ -163,6 +164,7 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
       />
 
       <WhaleAlertsPanel marketId={market.market_id} />
+      <SentimentPanel marketId={market.market_id} />
     </div>
   );
 }

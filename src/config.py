@@ -80,6 +80,17 @@ class Settings:
     whale_absolute_min_notional: Decimal = _get_decimal(
         "WHALE_ABSOLUTE_MIN_NOTIONAL", "250"
     )
+    gnews_api_key: str = _get_str("GNEWS_API_KEY", "")
+    gnews_base_url: str = _get_str("GNEWS_BASE_URL", "https://gnews.io/api/v4").rstrip("/")
+    gnews_search_path: str = _get_str("GNEWS_SEARCH_PATH", "/search")
+    sentiment_ttl_hours: int = _get_int("SENTIMENT_TTL_HOURS", 4)
+    sentiment_max_docs_per_market: int = _get_int("SENTIMENT_MAX_DOCS_PER_MARKET", 10)
+    sentiment_model_name: str = _get_str(
+        "SENTIMENT_MODEL_NAME", "cardiffnlp/twitter-roberta-base-sentiment-latest"
+    )
+    sentiment_request_timeout_seconds: int = _get_int(
+        "SENTIMENT_REQUEST_TIMEOUT_SECONDS", 15
+    )
     api_cors_origins: str = _get_str(
         "API_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
     )
@@ -91,6 +102,10 @@ class Settings:
     @property
     def polymarket_trades_url(self) -> str:
         return f"{self.polymarket_trades_base_url}{self.polymarket_trades_path}"
+
+    @property
+    def gnews_search_url(self) -> str:
+        return f"{self.gnews_base_url}{self.gnews_search_path}"
 
     @property
     def api_cors_origin_list(self) -> list[str]:

@@ -101,3 +101,24 @@ export function signalStrengthTier(signalType: string, strength: number) {
   }
   return "low";
 }
+
+export function formatSignedNumber(value: number | null) {
+  if (value === null) {
+    return "--";
+  }
+  if (value > 0) {
+    return `+${value.toFixed(2)}`;
+  }
+  return value.toFixed(2);
+}
+
+export function sentimentToneClass(label: string | null, value: number | null) {
+  const normalized = label?.toLowerCase();
+  if (normalized === "positive" || (normalized === null && value !== null && value > 0)) {
+    return "sentiment-positive";
+  }
+  if (normalized === "negative" || (normalized === null && value !== null && value < 0)) {
+    return "sentiment-negative";
+  }
+  return "sentiment-neutral";
+}

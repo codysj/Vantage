@@ -1,8 +1,11 @@
 import type {
+  ApiErrorDetail,
   HealthResponse,
   MarketDetail,
   MarketListResponse,
+  MarketSentimentSummary,
   RunListResponse,
+  SentimentDocumentListResponse,
   SignalListResponse,
   SnapshotHistoryResponse,
   WhaleListResponse,
@@ -11,6 +14,18 @@ import type {
 } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+export class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 function buildUrl(
   path: string,
@@ -36,7 +51,17 @@ async function fetchJson<T>(
 ): Promise<T> {
   const response = await fetch(buildUrl(path, params));
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    let detail: ApiErrorDetail | null = null;
+    try {
+      detail = (await response.json()).detail as ApiErrorDetail;
+    } catch {
+      detail = null;
+    }
+    throw new ApiRequestError(
+      detail?.message ?? `Request failed with status ${response.status}`,
+      response.status,
+      detail?.code,
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -109,6 +134,16 @@ export function getMarketWhales(
 
 export function getMarketWhaleSummary(marketId: string) {
   return fetchJson<WhaleSummary>(`/markets/${marketId}/whale-summary`);
+}
+
+export function getMarketSentiment(marketId: string) {
+  return fetchJson<MarketSentimentSummary>(`/markets/${marketId}/sentiment`);
+}
+
+export function getMarketSentimentDocuments(marketId: string) {
+  return fetchJson<SentimentDocumentListResponse>(
+    `/markets/${marketId}/sentiment/documents`,
+  );
 }
 
 export function getRuns(params: { limit?: number }) {
