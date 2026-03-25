@@ -353,6 +353,90 @@ select {
   font-size: 0.92rem;
 }
 
+.correlation-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.correlation-toggle-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.correlation-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.correlation-chart-shell {
+  display: grid;
+  grid-template-rows: 250px 180px;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.correlation-legend,
+.correlation-marker-summary {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: #5d728a;
+  font-size: 0.92rem;
+}
+
+.correlation-legend {
+  margin-bottom: 14px;
+}
+
+.legend-swatch {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  margin-right: 8px;
+}
+
+.legend-price {
+  background: #1565c0;
+}
+
+.legend-sentiment {
+  background: #4c6988;
+}
+
+.legend-anomaly {
+  background: #0f5cc0;
+}
+
+.legend-whale {
+  background: #b66a17;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+
+.correlation-tooltip {
+  border: 1px solid #d8e1eb;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 25px rgba(34, 57, 86, 0.12);
+  padding: 12px;
+  color: #223854;
+}
+
+.correlation-tooltip strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.correlation-headlines {
+  margin-top: 8px;
+}
+
 .signal-list,
 .status-metric-grid {
   list-style: none;
@@ -561,6 +645,13 @@ select {
   color: #59718c;
 }
 
+.sentiment-empty-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: #59718c;
+}
+
 .sentiment-card {
   border-color: #d7e2ef;
   background: #fbfcfe;
@@ -621,7 +712,8 @@ select {
   .top-grid,
   .detail-stats,
   .status-metric-grid,
-  .whale-summary-grid {
+  .whale-summary-grid,
+  .correlation-summary-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -639,7 +731,8 @@ select {
   .market-row-meta,
   .signal-card-main,
   .signal-market-row,
-  .system-status-header {
+  .system-status-header,
+  .correlation-panel-header {
     flex-direction: column;
     align-items: flex-start;
   }

@@ -47,6 +47,7 @@ def create_test_client(session_factory):
 
 
 def seed_market_data(session_factory) -> None:
+    base_time = datetime.now(timezone.utc).replace(microsecond=0)
     payload = sample_event_payload()
     payload["category"] = "Economy"
     payload["markets"][0]["lastTradePrice"] = "0.43"
@@ -86,7 +87,7 @@ def seed_market_data(session_factory) -> None:
             persist_events(
                 session,
                 [payload, second_payload],
-                observed_at=datetime(2026, 3, 18, tzinfo=timezone.utc),
+                observed_at=base_time,
             )
         market = get_market_by_api_id(session, "market-1")
         snapshot = get_market_history(session, "market-1")[0]
@@ -140,8 +141,8 @@ def seed_market_data(session_factory) -> None:
         )
         session.add(
             IngestionRun(
-                run_started_at=datetime(2026, 3, 18, 1, tzinfo=timezone.utc),
-                run_finished_at=datetime(2026, 3, 18, 1, 5, tzinfo=timezone.utc),
+                run_started_at=base_time,
+                run_finished_at=base_time,
                 status="success",
                 trigger_mode="manual",
                 api_source="gamma_events",

@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
 
-import { getMarket, getMarketHistory, getMarketSignals } from "../api/client";
+import {
+  ApiRequestError,
+  getMarket,
+  getMarketHistory,
+  getMarketSentiment,
+  getMarketSentimentDocuments,
+  getMarketSignals,
+} from "../api/client";
 import type {
   MarketDetail as MarketDetailType,
+  MarketSentimentSummary,
+  SentimentDocument,
   SignalItem,
   SnapshotHistoryRow,
 } from "../types";
@@ -12,10 +21,8 @@ import {
   formatProbability,
   formatRelativeTime,
 } from "../utils/format";
-import { PriceChart } from "./PriceChart";
+import { CorrelationPanel } from "./CorrelationPanel";
 import { SignalList } from "./SignalList";
-import { SentimentPanel } from "./SentimentPanel";
-import { WhaleAlertsPanel } from "./WhaleAlertsPanel";
 
 type MarketDetailProps = {
   marketId: string | null;
@@ -25,6 +32,18 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
   const [market, setMarket] = useState<MarketDetailType | null>(null);
   const [history, setHistory] = useState<SnapshotHistoryRow[]>([]);
   const [signals, setSignals] = useState<SignalItem[]>([]);
+  const [sentimentSummary, setSentimentSummary] = useState<MarketSentimentSummary | null>(null);
+  const [sentimentDocuments, setSentimentDocuments] = useState<SentimentDocument[]>([]);
+  const [sentimentStatus, setSentimentStatus] = useState<
+    | "readLoading"
+    | "hasCachedData"
+    | "noDataYet"
+    | "generationInProgress"
+    | "configError"
+    | "unavailable"
+    | "error"
+  >("readLoading");
+  const [sentimentMessage, setSentimentMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,17 +52,25 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
       setMarket(null);
       setHistory([]);
       setSignals([]);
+      setSentimentSummary(null);
+      setSentimentDocuments([]);
+      setSentimentStatus("readLoading");
+      setSentimentMessage(null);
       return;
     }
 
     let active = true;
     setLoading(true);
     setError(null);
+    setSentimentSummary(null);
+    setSentimentDocuments([]);
+    setSentimentStatus("readLoading");
+    setSentimentMessage(null);
 
     Promise.all([
       getMarket(marketId),
       getMarketHistory(marketId, { limit: 100 }),
-      getMarketSignals(marketId, { limit: 10 }),
+      getMarketSignals(marketId, { limit: 50 }),
     ])
       .then(([marketResponse, historyResponse, signalsResponse]) => {
         if (!active) {
@@ -65,10 +92,113 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
         }
       });
 
+    getMarketSentiment(marketId)
+      .then((summaryResponse) => {
+        if (!active) {
+          return;
+        }
+
+        setSentimentSummary(summaryResponse);
+        if (summaryResponse.status === "empty" || summaryResponse.doc_count === 0) {
+          setSentimentStatus("noDataYet");
+          setSentimentMessage(summaryResponse.message ?? "No sentiment data available yet for this market.");
+          return;
+        }
+
+        getMarketSentimentDocuments(marketId)
+          .then((documentsResponse) => {
+            if (!active) {
+              return;
+            }
+
+            setSentimentDocuments(documentsResponse.items);
+            setSentimentStatus("hasCachedData");
+          })
+          .catch((caughtError) => {
+            if (!active) {
+              return;
+            }
+            if (caughtError instanceof ApiRequestError) {
+              setSentimentStatus(
+                caughtError.code === "sentiment_config_error"
+                  ? "configError"
+                  : caughtError.code === "sentiment_upstream_unavailable" ||
+                      caughtError.code === "sentiment_model_unavailable"
+                    ? "unavailable"
+                    : "error",
+              );
+              setSentimentMessage(caughtError.message);
+              return;
+            }
+            setSentimentStatus("error");
+            setSentimentMessage("Unable to load sentiment details right now.");
+          });
+      })
+      .catch((caughtError) => {
+        if (!active) {
+          return;
+        }
+        if (caughtError instanceof ApiRequestError) {
+          setSentimentStatus(
+            caughtError.code === "sentiment_config_error"
+              ? "configError"
+              : caughtError.code === "sentiment_upstream_unavailable" ||
+                  caughtError.code === "sentiment_model_unavailable"
+                ? "unavailable"
+                : "error",
+          );
+          setSentimentMessage(caughtError.message);
+          return;
+        }
+        setSentimentStatus("error");
+        setSentimentMessage("Unable to load sentiment right now.");
+      });
+
     return () => {
       active = false;
     };
   }, [marketId]);
+
+  async function handleGenerateSentiment() {
+    if (!marketId) {
+      return;
+    }
+
+    setSentimentStatus("generationInProgress");
+    setSentimentMessage(null);
+
+    try {
+      const summaryResponse = await getMarketSentiment(marketId);
+      setSentimentSummary(summaryResponse);
+
+      if (summaryResponse.status === "empty" || summaryResponse.doc_count === 0) {
+        setSentimentDocuments([]);
+        setSentimentStatus("noDataYet");
+        setSentimentMessage(summaryResponse.message ?? "No sentiment data available yet for this market.");
+        return;
+      }
+
+      const documentsResponse = await getMarketSentimentDocuments(marketId);
+      setSentimentDocuments(documentsResponse.items);
+      setSentimentStatus("hasCachedData");
+    } catch (caughtError) {
+      if (caughtError instanceof ApiRequestError) {
+        setSentimentStatus(
+          caughtError.code === "sentiment_config_error"
+            ? "configError"
+            : caughtError.code === "sentiment_upstream_unavailable" ||
+                caughtError.code === "sentiment_model_unavailable"
+              ? "unavailable"
+              : "error",
+        );
+        setSentimentMessage(caughtError.message);
+        return;
+      }
+
+      setSentimentStatus("error");
+      setSentimentMessage("Unable to generate sentiment context right now.");
+    }
+  }
 
   if (!marketId) {
     return (
@@ -148,13 +278,15 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <h3>Historical Price Chart</h3>
-          <p>Recent probability movement from stored market snapshots.</p>
-        </div>
-        <PriceChart history={history} />
-      </div>
+      <CorrelationPanel
+        history={history}
+        signals={signals}
+        sentimentSummary={sentimentSummary}
+        sentimentDocuments={sentimentDocuments}
+        sentimentStatus={sentimentStatus}
+        sentimentMessage={sentimentMessage}
+        onGenerateSentiment={handleGenerateSentiment}
+      />
 
       <SignalList
         signals={signals}
@@ -162,9 +294,6 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
         emptyMessage="No recent signals for this market."
         showMarketContext={false}
       />
-
-      <WhaleAlertsPanel marketId={market.market_id} />
-      <SentimentPanel marketId={market.market_id} />
     </div>
   );
 }

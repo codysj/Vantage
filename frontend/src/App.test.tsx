@@ -487,7 +487,7 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders fetched data, system status, and market whale activity", async () => {
+  it("renders fetched data, system status, and the correlation view", async () => {
     installFetchMock();
 
     render(<App />);
@@ -497,11 +497,9 @@ describe("App", () => {
     await findMarketButton(/Will the Fed cut rates in June\?/i);
     expect(screen.getByText("System Status")).toBeInTheDocument();
     expect(screen.getByText("Healthy")).toBeInTheDocument();
-    expect(screen.getByText("Whale Activity")).toBeInTheDocument();
+    expect(screen.getByText("Correlation View")).toBeInTheDocument();
     expect(screen.getAllByText("Whale trade 8.27x median notional").length).toBeGreaterThan(0);
-    expect(
-      await screen.findByText((_, element) => element?.textContent === "Total whale events"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Recent whales")).toBeInTheDocument();
   });
 
   it("renders signal and whale badges only on matching markets", async () => {
@@ -510,8 +508,8 @@ describe("App", () => {
     render(<App />);
 
     const list = await findMarketList();
-    const signalBadges = screen.getAllByText("Signals");
-    const whaleBadges = screen.getAllByText("Whales");
+    const signalBadges = within(list).getAllByText("Signals");
+    const whaleBadges = within(list).getAllByText("Whales");
 
     expect(signalBadges).toHaveLength(1);
     expect(whaleBadges).toHaveLength(1);
@@ -532,7 +530,7 @@ describe("App", () => {
 
     await screen.findByText("Inflation market");
     expect(screen.getByText("Inflation market")).toBeInTheDocument();
-    expect(screen.getByText("No whale events detected for this market yet.")).toBeInTheDocument();
+    expect(screen.getByText("Correlation View")).toBeInTheDocument();
   });
 
   it("surfaces stronger whale signals first in the global feed", async () => {
@@ -743,7 +741,7 @@ describe("App", () => {
     expect(selectedRow.className).toContain("market-row-selected-strong");
   });
 
-  it("renders empty chart, signal, and whale states when market detail has no history", async () => {
+  it("renders empty chart and signal states when market detail has no history", async () => {
     installFetchMock({
       history: { market_id: "market-1", items: [], count: 0 },
       signals: { items: [], limit: 10, count: 0 },
@@ -763,20 +761,17 @@ describe("App", () => {
     render(<App />);
 
     await findMarketButton(/Will the Fed cut rates in June\?/i);
-    expect(screen.getByTestId("price-chart-mock")).toHaveTextContent("History points: 0");
+    expect(screen.getByText("No history yet for this market.")).toBeInTheDocument();
     expect(screen.getByText("No recent signals for this market.")).toBeInTheDocument();
-    expect(screen.getByText("No whale events detected for this market yet.")).toBeInTheDocument();
   });
 
-  it("loads and renders market sentiment on demand", async () => {
+  it("loads and renders market sentiment automatically inside the correlation view", async () => {
     const fetchMock = installFetchMock();
 
     render(<App />);
 
     await findMarketButton(/Will the Fed cut rates in June\?/i);
-    fireEvent.click(screen.getByRole("button", { name: "Load sentiment" }));
-
-    await screen.findByText("Average sentiment");
+    await screen.findByText("Latest sentiment");
     expect(screen.getByText("Fed outlook remains in focus")).toBeInTheDocument();
     expect(screen.getByText(/positive 0.88/i)).toBeInTheDocument();
     const calls = fetchMock.mock.calls.map(([input]) => String(input));
@@ -790,7 +785,7 @@ describe("App", () => {
     expect(documentsIndex).toBeGreaterThan(summaryIndex);
   });
 
-  it("renders a clean empty sentiment state instead of the generic error", async () => {
+  it("renders a CTA when no sentiment has been generated yet", async () => {
     installFetchMock();
 
     render(<App />);
@@ -798,10 +793,167 @@ describe("App", () => {
     const list = await findMarketList();
     fireEvent.click(getMarketButton(list, /Will CPI rise in April\?/i));
     await screen.findByText("Inflation market");
-    fireEvent.click(screen.getByRole("button", { name: "Load sentiment" }));
 
-    await screen.findByText("No recent headlines found for this market.");
+    await screen.findByText("No sentiment data available yet for this market.");
+    expect(screen.getByRole("button", { name: "Load sentiment drivers" })).toBeInTheDocument();
     expect(screen.queryByText("Unable to load sentiment right now.")).not.toBeInTheDocument();
+  });
+
+  it("clicking the CTA generates sentiment and refreshes the correlation panel", async () => {
+    let generated = false;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/health")) {
+        return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
+      }
+      if (url.includes("/markets?")) {
+        return Promise.resolve(new Response(JSON.stringify(marketsResponse), { status: 200 }));
+      }
+      if (url.endsWith("/markets/market-1")) {
+        return Promise.resolve(new Response(JSON.stringify(marketDetailResponse), { status: 200 }));
+      }
+      if (url.endsWith("/markets/market-2")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(secondMarketDetailResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/markets/market-1/history")) {
+        return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-2/history")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              market_id: "market-2",
+              items: [
+                {
+                  observed_at: "2026-03-18T12:00:00Z",
+                  last_trade_price: 0.55,
+                  best_bid: 0.54,
+                  best_ask: 0.56,
+                  volume: 130,
+                  liquidity: 130,
+                },
+              ],
+              count: 1,
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes("/markets/market-1/signals")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(marketSignalsResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/markets/market-2/signals")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 22,
+                  market_id: "market-2",
+                  event_id: "event-2",
+                  market_question: "Will CPI rise in April?",
+                  market_slug: "will-cpi-rise-april",
+                  market_active: true,
+                  market_closed: false,
+                  signal_type: "volume_spike",
+                  signal_strength: 3.4,
+                  detected_at: "2026-03-18T12:05:00Z",
+                  summary: "Volume jumped versus baseline",
+                  metadata: { summary: "Volume jumped versus baseline" },
+                },
+              ],
+              limit: 10,
+              count: 1,
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes("/signals?")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(globalSignalsResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/runs?")) {
+        return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-2/sentiment/documents")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              generated
+                ? {
+                    market_id: "market-2",
+                    status: "ok",
+                    message: null,
+                    items: [
+                      {
+                        id: 9,
+                        source_name: "Bloomberg",
+                        url: "https://example.com/cpi",
+                        title: "Inflation expectations rise",
+                        snippet: "Fresh macro data is driving inflation chatter.",
+                        published_at: "2026-03-18T11:45:00Z",
+                        sentiment_label: "negative",
+                        sentiment_confidence: 0.77,
+                        sentiment_value: -0.77,
+                      },
+                    ],
+                    count: 1,
+                  }
+                : secondMarketSentimentDocumentsResponse,
+            ),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.includes("/markets/market-2/sentiment")) {
+        const body = generated
+          ? {
+              market_id: "market-2",
+              status: "ok",
+              message: null,
+              avg_sentiment: -0.77,
+              doc_count: 1,
+              pos_count: 0,
+              neg_count: 1,
+              neutral_count: 0,
+              last_updated: "2026-03-18T12:02:00Z",
+            }
+          : secondMarketSentimentSummaryResponse;
+        generated = true;
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/sentiment/documents")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(sentimentDocumentsResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/markets/market-1/sentiment")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(sentimentSummaryResponse), { status: 200 }),
+        );
+      }
+
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const list = await findMarketList();
+    fireEvent.click(getMarketButton(list, /Will CPI rise in April\?/i));
+    await screen.findByText("Inflation market");
+    fireEvent.click(screen.getByRole("button", { name: "Load sentiment drivers" }));
+
+    await screen.findByText("Inflation expectations rise");
+    expect(screen.queryByText("No sentiment data available yet for this market.")).not.toBeInTheDocument();
   });
 
   it("renders structured sentiment availability errors cleanly", async () => {
@@ -865,10 +1017,81 @@ describe("App", () => {
     render(<App />);
 
     await findMarketButton(/Will the Fed cut rates in June\?/i);
-    fireEvent.click(screen.getByRole("button", { name: "Load sentiment" }));
 
     await screen.findByText("Headline source is temporarily unavailable.");
+    expect(screen.queryByRole("button", { name: "Load sentiment drivers" })).not.toBeInTheDocument();
     expect(screen.queryByText("Unable to load sentiment right now.")).not.toBeInTheDocument();
+  });
+
+  it("shows a true config error only for sentiment configuration failures", async () => {
+    const mockFetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/health")) {
+        return Promise.resolve(new Response(JSON.stringify(healthResponse), { status: 200 }));
+      }
+      if (url.includes("/markets?")) {
+        return Promise.resolve(new Response(JSON.stringify(marketsResponse), { status: 200 }));
+      }
+      if (url.endsWith("/markets/market-1")) {
+        return Promise.resolve(new Response(JSON.stringify(marketDetailResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/history")) {
+        return Promise.resolve(new Response(JSON.stringify(historyResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/signals")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(marketSignalsResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/signals?")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(globalSignalsResponse), { status: 200 }),
+        );
+      }
+      if (url.includes("/runs?")) {
+        return Promise.resolve(new Response(JSON.stringify(runsResponse), { status: 200 }));
+      }
+      if (url.includes("/markets/market-1/sentiment")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              detail: {
+                code: "sentiment_config_error",
+                message: "Sentiment is not configured yet.",
+              },
+            }),
+            { status: 503 },
+          ),
+        );
+      }
+
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    render(<App />);
+
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
+
+    await screen.findByText("Sentiment is not configured yet.");
+    expect(screen.queryByRole("button", { name: "Load sentiment drivers" })).not.toBeInTheDocument();
+  });
+
+  it("layer toggles hide sentiment and whale marker content cleanly", async () => {
+    installFetchMock();
+
+    render(<App />);
+
+    await findMarketButton(/Will the Fed cut rates in June\?/i);
+    await screen.findByText("Correlation View");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sentiment" }));
+    expect(screen.queryByText("Recent Sentiment Headlines")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Whales" }));
+    expect(screen.getByRole("button", { name: "Whales" })).toBeInTheDocument();
   });
 
   it("renders error state when market fetch fails", async () => {
