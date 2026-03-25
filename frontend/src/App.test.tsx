@@ -314,9 +314,15 @@ function installFetchMock(overrides?: {
   marketsStatus?: number;
   runs?: typeof runsResponse;
   marketWhales?: typeof marketWhalesResponse;
-  whaleSummary?: typeof whaleSummaryResponse;
-  sentimentSummary?: typeof sentimentSummaryResponse;
-  sentimentDocuments?: typeof sentimentDocumentsResponse;
+  whaleSummary?:
+    | typeof whaleSummaryResponse
+    | typeof secondMarketWhaleSummaryResponse;
+  sentimentSummary?:
+    | typeof sentimentSummaryResponse
+    | typeof secondMarketSentimentSummaryResponse;
+  sentimentDocuments?:
+    | typeof sentimentDocumentsResponse
+    | typeof secondMarketSentimentDocumentsResponse;
 }) {
   const mockFetch = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
