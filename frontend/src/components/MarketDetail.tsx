@@ -1,3 +1,10 @@
+/*
+  MarketDetail owns the market-level drill-down flow.
+
+  It fetches one market's history, signals, and sentiment resources and then
+  passes the combined state into the correlation view and recent-signal list.
+*/
+
 import { useEffect, useState } from "react";
 
 import {
@@ -67,6 +74,8 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
     setSentimentStatus("readLoading");
     setSentimentMessage(null);
 
+    // price history and market-specific signals are core detail data, so they
+    // load together and block the detail shell.
     Promise.all([
       getMarket(marketId),
       getMarketHistory(marketId, { limit: 100 }),
@@ -92,6 +101,8 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
         }
       });
 
+    // sentiment is enrichment, not a hard dependency. We load it separately so
+    // the detail panel can still render price history and signals without it.
     getMarketSentiment(marketId)
       .then((summaryResponse) => {
         if (!active) {
@@ -105,6 +116,8 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
           return;
         }
 
+        // only fetch per-headline documents when cached sentiment actually
+        // exists for this market.
         getMarketSentimentDocuments(marketId)
           .then((documentsResponse) => {
             if (!active) {
@@ -168,6 +181,8 @@ export function MarketDetail({ marketId }: MarketDetailProps) {
     setSentimentMessage(null);
 
     try {
+      // this reuses the Phase 6 lazy endpoint: a cache miss can trigger fetch,
+      // inference, and storage, then the detail view refreshes from that cache.
       const summaryResponse = await getMarketSentiment(marketId);
       setSentimentSummary(summaryResponse);
 

@@ -1,3 +1,11 @@
+/*
+  Build one chart-friendly timeline from separate backend resources.
+
+  The backend already exposes price history, signal events, and sentiment
+  documents, so the frontend only needs to normalize timestamps and bucket
+  sentiment into a shared correlation view.
+*/
+
 import type {
   MarketSentimentSummary,
   SentimentDocument,
@@ -31,6 +39,8 @@ type PricePoint = {
 };
 
 function bucketSizeMs(history: SnapshotHistoryRow[], documents: SentimentDocument[]) {
+  // use a simple span-based bucket size so short windows stay detailed and long
+  // windows stay readable without another backend aggregation endpoint.
   const timestamps = [
     ...history.map((row) => new Date(row.observed_at).getTime()),
     ...documents
@@ -57,6 +67,8 @@ function normalizeBucketStart(timestamp: number, sizeMs: number) {
 }
 
 function findNearestPrice(timestamp: number, pricePoints: PricePoint[]) {
+  // event markers borrow the nearest price so whales and anomaly dots can sit
+  // on the price chart even when the event timestamp does not exactly match a snapshot.
   if (pricePoints.length === 0) {
     return null;
   }
@@ -81,6 +93,8 @@ export function buildCorrelationView(params: {
   sentimentSummary: MarketSentimentSummary | null;
   sentimentDocuments: SentimentDocument[];
 }): CorrelationView {
+  // sentiment is stored as headline-level rows, so we bucket it client-side
+  // into a lightweight trend that can sit beside the price history.
   const { history, signals, sentimentSummary, sentimentDocuments } = params;
   const sizeMs = bucketSizeMs(history, sentimentDocuments);
 
@@ -110,6 +124,8 @@ export function buildCorrelationView(params: {
     sentimentBuckets.set(bucket, current);
   }
 
+  // whales share the same timeline as other alerts, but keeping them split here
+  // lets the UI style and toggle them independently.
   const signalGroups = new Map<number, { anomalies: SignalItem[]; whales: SignalItem[] }>();
   for (const signal of signals) {
     const timestamp = new Date(signal.detected_at).getTime();

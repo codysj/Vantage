@@ -1,3 +1,10 @@
+"""SQLAlchemy models for the full market-intelligence system.
+
+The tables mirror the product architecture: raw market data and historical
+snapshots, derived analytics such as signals and whale events, and the lazy
+sentiment cache used by the dashboard.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -43,6 +50,7 @@ class TimestampMixin:
 
 
 class Event(TimestampMixin, Base):
+    """A Polymarket event and its slow-changing metadata."""
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -74,6 +82,7 @@ class Event(TimestampMixin, Base):
 
 
 class Market(TimestampMixin, Base):
+    """One tradeable contract under an event."""
     __tablename__ = "markets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -124,6 +133,7 @@ class Market(TimestampMixin, Base):
 
 
 class MarketSnapshot(Base):
+    """A point-in-time observation used for price history and anomaly rules."""
     __tablename__ = "market_snapshots"
     __table_args__ = (
         UniqueConstraint("snapshot_key", name="uq_market_snapshots_snapshot_key"),
@@ -163,6 +173,7 @@ class MarketSnapshot(Base):
 
 
 class MarketOutcome(TimestampMixin, Base):
+    """Normalized per-outcome data so binary and multi-outcome markets share one shape."""
     __tablename__ = "market_outcomes"
     __table_args__ = (
         UniqueConstraint("market_id", "outcome_index", name="uq_market_outcomes_market_index"),
@@ -180,6 +191,7 @@ class MarketOutcome(TimestampMixin, Base):
 
 
 class Tag(TimestampMixin, Base):
+    """Event-level category/tag metadata from the source payload."""
     __tablename__ = "tags"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -195,6 +207,7 @@ class Tag(TimestampMixin, Base):
 
 
 class EventTag(Base):
+    """Join table linking stored events to normalized tags."""
     __tablename__ = "event_tags"
     __table_args__ = (UniqueConstraint("event_id", "tag_id", name="uq_event_tags_event_tag"),)
 
@@ -210,6 +223,7 @@ class EventTag(Base):
 
 
 class Trade(Base):
+    """Normalized trade history used for whale detection and market drill-downs."""
     __tablename__ = "trades"
     __table_args__ = (Index("ix_trades_market_executed", "market_id", "executed_at"),)
 
@@ -235,6 +249,7 @@ class Trade(Base):
 
 
 class IngestionRun(Base):
+    """Operational record for one ingestion cycle."""
     __tablename__ = "ingestion_runs"
     __table_args__ = (Index("ix_ingestion_runs_started_status", "run_started_at", "status"),)
 

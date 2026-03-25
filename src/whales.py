@@ -1,3 +1,9 @@
+"""Whale detection over normalized trade history.
+
+This layer treats unusually large trades relative to a market's own recent
+activity as whale candidates and persists them as first-class events.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -71,9 +77,12 @@ def _build_summary(trade: Trade, median_multiple: Decimal | None, trade_size: De
 
 
 def compute_whale_for_trade(trade: Trade, history: list[Trade]) -> WhaleCandidate | None:
+    """Return a whale candidate when a trade is extreme for its own market."""
     if trade.trade_size is None or trade.trade_size < settings.whale_absolute_min_notional:
         return None
 
+    # use a market-local baseline so large trades are judged against that
+    # contract's normal activity, not against the whole platform.
     baseline_sizes = [item.trade_size for item in history if item.trade_size is not None]
     if len(baseline_sizes) < settings.whale_min_history_count:
         return None
@@ -89,6 +98,8 @@ def compute_whale_for_trade(trade: Trade, history: list[Trade]) -> WhaleCandidat
     if baseline_std is not None and baseline_std > 0 and baseline_mean is not None:
         zscore = (trade.trade_size - baseline_mean) / baseline_std
 
+    # a trade qualifies if it clears the absolute floor and is extreme by
+    # either z-score or multiple-of-median, which is more stable on skewed data.
     if (
         (zscore is None or zscore < settings.whale_zscore_threshold)
         and median_multiple < settings.whale_median_multiplier_threshold
@@ -138,6 +149,8 @@ def compute_whale_for_trade(trade: Trade, history: list[Trade]) -> WhaleCandidat
 
 
 def _insert_whale_event(session: Session, candidate: WhaleCandidate) -> bool:
+    # the same trade and detection method should only persist once, even when
+    # backfills or retries replay historical trades.
     dialect_name = session.bind.dialect.name
     if dialect_name == "postgresql":
         from sqlalchemy.dialects.postgresql import insert as dialect_insert
@@ -165,6 +178,7 @@ def _insert_whale_event(session: Session, candidate: WhaleCandidate) -> bool:
 
 
 def generate_whales_for_trades(session: Session, trade_ids: set[int]) -> WhaleGenerationResult:
+    """Detect whale events for the newly inserted trades from this run."""
     if not trade_ids:
         return WhaleGenerationResult(
             generated_count=0,
@@ -224,6 +238,7 @@ def generate_whales_for_trades(session: Session, trade_ids: set[int]) -> WhaleGe
 
 
 def backfill_whales(session: Session, market_api_id: str | None = None) -> WhaleGenerationResult:
+    """Replay whale detection across already stored trades."""
     stmt = select(Trade.id)
     if market_api_id:
         stmt = stmt.join(Market).where(Market.market_id == market_api_id)

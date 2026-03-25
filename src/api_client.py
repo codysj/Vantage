@@ -1,3 +1,9 @@
+"""HTTP client for upstream market data sources.
+
+The ingestion layer uses this client to fetch events and trades with one retry
+policy and one source-of-truth for endpoint configuration.
+"""
+
 from __future__ import annotations
 
 import time
@@ -10,6 +16,8 @@ from src.config import settings
 
 
 class PolymarketClient:
+    """Small wrapper around the public Polymarket read APIs used by ingestion."""
+
     def __init__(
         self,
         base_url: str | None = None,
@@ -45,6 +53,8 @@ class PolymarketClient:
         expected_type: type,
         error_message: str,
     ) -> Any:
+        # transient upstream failures are retried here so the ingestion code can
+        # stay focused on normalization and persistence.
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 2):
             try:

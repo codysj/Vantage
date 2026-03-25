@@ -1,3 +1,9 @@
+"""Source-payload normalization helpers for ingestion.
+
+These helpers turn inconsistent API payloads into stable event, market,
+snapshot, and trade shapes before they are written to the database.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -35,6 +41,8 @@ def parse_bool(value: Any) -> bool | None:
 
 
 def parse_decimal(value: Any) -> Decimal | None:
+    # numeric cleanup happens here so downstream logic can assume either a real
+    # decimal or None instead of repeated string parsing.
     if value is None or value == "":
         return None
     if isinstance(value, Decimal):
@@ -169,6 +177,9 @@ def choose_market_type(market_payload: dict[str, Any]) -> str | None:
 def build_snapshot_key(
     market_api_id: str, source_updated_at: datetime | None, dynamic_fields: dict[str, Any]
 ) -> str:
+    # prefer the source timestamp when available. If the API does not give us a
+    # stable update time, fall back to a hash of the changing fields so retries
+    # do not create duplicate historical rows.
     if source_updated_at is not None:
         return f"{market_api_id}:{source_updated_at.isoformat()}"
     stable_json = json.dumps(dynamic_fields, sort_keys=True, default=str)
@@ -199,6 +210,8 @@ def build_trade_key(
     outcome_index: int | None,
     transaction_hash: str | None,
 ) -> str:
+    # Polymarket's public trade feed does not always give us a single durable
+    # trade id, so we derive one from the fields that make a trade unique here.
     stable_payload = {
         "condition_id": condition_id,
         "executed_at": executed_at.isoformat() if executed_at else None,
@@ -214,6 +227,7 @@ def build_trade_key(
 
 
 def normalize_trade(trade_payload: dict[str, Any]) -> dict[str, Any]:
+    """Return one stable trade row ready for persistence and whale detection."""
     condition_id = get_first(trade_payload, "conditionId", "condition_id")
     if condition_id in (None, ""):
         raise ValueError("Trade payload is missing conditionId.")
@@ -255,6 +269,7 @@ def normalize_trade(trade_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_event(event_payload: dict[str, Any], observed_at: datetime) -> dict[str, Any]:
+    """Return one normalized event bundle with nested markets, outcomes, and tags."""
     raw_event_id = get_first(event_payload, "id", "eventId")
     if raw_event_id in (None, ""):
         raise ValueError("Event payload is missing an id/eventId.")

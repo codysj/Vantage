@@ -1,3 +1,10 @@
+/*
+  Thin typed wrapper over the FastAPI read layer.
+
+  Keeping API access here gives the UI one place to build URLs and one place to
+  preserve structured backend errors like sentiment config/unavailable states.
+*/
+
 import type {
   ApiErrorDetail,
   HealthResponse,
@@ -49,6 +56,8 @@ async function fetchJson<T>(
   path: string,
   params?: Record<string, string | number | boolean | undefined>,
 ): Promise<T> {
+  // preserve API error codes so the sentiment UI can distinguish empty data,
+  // configuration issues, and temporary upstream/model failures.
   const response = await fetch(buildUrl(path, params));
   if (!response.ok) {
     let detail: ApiErrorDetail | null = null;

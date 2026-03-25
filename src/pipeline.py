@@ -1,3 +1,10 @@
+"""Scheduler wrapper around the ingestion cycle.
+
+The pipeline service keeps local polling simple: it runs the ingestion cycle on
+an interval, avoids overlapping runs, and exposes a small CLI for manual runs
+and recent-run inspection.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -16,10 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 class PipelineService:
+    """Small runtime wrapper that prevents concurrent ingestion cycles."""
+
     def __init__(self) -> None:
         self._run_lock = threading.Lock()
 
     def run_cycle_if_available(self, *, trigger_mode: str, scheduler_job_id: str | None = None):
+        """Skip the run if one is already active in this process."""
         if not self._run_lock.acquire(blocking=False):
             logger.warning(
                 "Skipping ingestion cycle because another run is still active.",
@@ -36,6 +46,7 @@ class PipelineService:
             self._run_lock.release()
 
     def serve(self) -> None:
+        """Run the blocking scheduler for the polling-style local pipeline."""
         scheduler = BlockingScheduler()
         scheduler.add_job(
             self.run_cycle_if_available,

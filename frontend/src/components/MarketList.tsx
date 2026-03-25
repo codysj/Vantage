@@ -24,6 +24,8 @@ export function MarketList({
   onLoadMore,
   hasMore,
 }: MarketListProps) {
+  // the browser stays intentionally compact: most discovery work happens in the
+  // badges and freshness metadata rather than in a second detail view.
   if (loading) {
     return <div className="panel list-state">Loading markets...</div>;
   }

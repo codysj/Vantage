@@ -1,3 +1,10 @@
+"""Read/query layer for the dashboard-facing API.
+
+These helpers gather the stored rows the UI needs and shape them into efficient
+list/detail views so the frontend does not have to join multiple resources
+client-side.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -52,6 +59,7 @@ def get_markets_for_api(
     has_signals: bool | None = None,
     signal_type: str | None = None,
 ) -> list[tuple[Market, MarketSnapshot | None, str | None, bool, bool]]:
+    """Return dashboard market rows with latest snapshot and signal presence."""
     latest_snapshot_subquery = (
         select(
             MarketSnapshot.market_id.label("market_id"),
@@ -107,6 +115,8 @@ def get_markets_for_api(
     has_whales_expr = whale_presence_subquery.c.market_id.is_not(None)
     has_signals_expr = or_(has_snapshot_signals_expr, has_whales_expr)
 
+    # the market browser needs latest price, category, and signal badges in one
+    # request, so this query joins those derived pieces up front.
     stmt = (
         select(
             Market,
@@ -383,6 +393,7 @@ def get_signal_feed(
     signal_type: str | None = None,
     market_id: str | None = None,
 ) -> list[SignalFeedItem]:
+    """Return a merged alert feed where whale events sit beside anomaly signals."""
     if signal_type == "whale":
         return [
             SignalFeedItem(source="whale", record=whale_event, market=market)
@@ -393,6 +404,8 @@ def get_signal_feed(
             )
         ]
 
+    # whales live in a dedicated table, but the dashboard wants one feed of
+    # "interesting things happening now", so we merge them here.
     signal_items = [
         SignalFeedItem(source="signal", record=signal, market=market)
         for signal, market in get_recent_signals(
@@ -445,6 +458,7 @@ def get_market_sentiment_documents(
     market_id: str,
     model_name: str,
 ) -> list[tuple[SentimentDocument, SentimentScore | None]]:
+    """Return stored headline documents plus the score for the active model."""
     market = get_market_by_api_id(session, market_id)
     if market is None:
         return []

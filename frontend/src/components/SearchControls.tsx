@@ -25,6 +25,8 @@ export function SearchControls({
   onHasSignalsOnlyChange,
   onSignalTypeChange,
 }: SearchControlsProps) {
+  // these controls map directly to backend filters so users can narrow the
+  // market list without downloading and filtering the whole universe client-side.
   return (
     <div className="panel search-panel">
       <div className="panel-header">

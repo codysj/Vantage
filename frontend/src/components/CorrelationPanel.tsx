@@ -1,3 +1,11 @@
+/*
+  CorrelationPanel is the main Phase 7 surface.
+
+  It lines up price, sentiment, and event markers on one shared timeline so a
+  reviewer can visually inspect whether narrative and trading signals coincide
+  with market moves.
+*/
+
 import { useMemo, useState } from "react";
 import {
   Area,
@@ -119,6 +127,7 @@ export function CorrelationPanel({
   sentimentMessage,
   onGenerateSentiment,
 }: CorrelationPanelProps) {
+  // keep each layer independently toggleable so the chart stays readable during demos.
   const [showSentiment, setShowSentiment] = useState(true);
   const [showAnomalies, setShowAnomalies] = useState(true);
   const [showWhales, setShowWhales] = useState(true);
@@ -134,6 +143,8 @@ export function CorrelationPanel({
     [history, signals, sentimentDocuments, sentimentSummary],
   );
 
+  // markers are derived separately so the price series stays continuous while
+  // events remain inspectable as their own overlay layer.
   const anomalyMarkers = correlation.rows
     .filter((row) => row.markerPrice !== null && row.anomalies.length > 0)
     .flatMap((row) =>
@@ -336,9 +347,11 @@ export function CorrelationPanel({
       {sentimentStatus === "noDataYet" ? (
         <div className="sentiment-empty-cta">
           <p>No sentiment data available yet for this market.</p>
-          <button className="load-more-button" type="button" onClick={onGenerateSentiment}>
-            Load sentiment drivers
-          </button>
+              {/* this CTA keeps Phase 6's on-demand generation available inside
+                  the Phase 7 correlation view instead of forcing precomputed sentiment */}
+              <button className="load-more-button" type="button" onClick={onGenerateSentiment}>
+                Load sentiment drivers
+              </button>
         </div>
       ) : null}
 
@@ -351,9 +364,11 @@ export function CorrelationPanel({
         </div>
       ) : null}
 
-      {sentimentStatus === "configError" ||
-      sentimentStatus === "unavailable" ||
-      sentimentStatus === "error" ? (
+          {/* config errors are distinct from ordinary "no data yet" so the user
+              knows whether the feature is disabled or just not cached yet */}
+          {sentimentStatus === "configError" ||
+          sentimentStatus === "unavailable" ||
+          sentimentStatus === "error" ? (
         <div className={`list-state ${correlationTone(sentimentStatus)}`}>
           {sentimentMessage ?? "Sentiment is temporarily unavailable for this market."}
         </div>

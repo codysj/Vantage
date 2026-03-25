@@ -1,3 +1,10 @@
+"""Ingestion entrypoint for raw Polymarket events and trades.
+
+This module pulls source payloads, normalizes them into the project's stable
+database shape, persists them idempotently, and then triggers downstream
+analytics on the records touched in that run.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -30,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class IngestionCycleSummary:
+    """Run-level counters used for logs, CLI output, and API observability."""
+
     trigger_mode: str
     run_started_at: datetime
     run_finished_at: datetime | None = None
@@ -79,6 +88,7 @@ class IngestionCycleSummary:
 
 
 def _upsert(session: Session, model: Any, values: dict[str, Any], conflict_columns: list[str]) -> None:
+    """Write one row idempotently using the table's natural unique key."""
     dialect_name = session.bind.dialect.name
     if dialect_name == "postgresql":
         from sqlalchemy.dialects.postgresql import insert as dialect_insert
@@ -137,6 +147,7 @@ def ensure_event_tags(session: Session, event: Event, tag_rows: Iterable[dict[st
 
 
 def insert_snapshot(session: Session, market: Market, snapshot_data: dict[str, Any]) -> tuple[MarketSnapshot, bool]:
+    """Insert or update one historical snapshot and report whether it was new."""
     before_snapshot = session.execute(
         select(MarketSnapshot).where(MarketSnapshot.snapshot_key == snapshot_data["snapshot_key"])
     ).scalar_one_or_none()
@@ -150,6 +161,7 @@ def insert_snapshot(session: Session, market: Market, snapshot_data: dict[str, A
 
 
 def upsert_trade(session: Session, market: Market, trade_data: dict[str, Any]) -> tuple[Trade, bool]:
+    """Insert or update one normalized trade using its deterministic external key."""
     before_trade = session.execute(
         select(Trade).where(Trade.external_trade_id == trade_data["external_trade_id"])
     ).scalar_one_or_none()
@@ -181,12 +193,19 @@ def persist_events(
     summary: IngestionCycleSummary | None = None,
     observed_at: datetime | None = None,
 ) -> None:
+    """Persist normalized events, markets, outcomes, tags, and snapshots.
+
+    Bad source records are skipped and logged so one malformed payload does not
+    fail the whole ingestion cycle.
+    """
     observed = observed_at or datetime.now(timezone.utc)
     active_summary = summary or IngestionCycleSummary(
         trigger_mode="manual",
         run_started_at=observed,
     )
 
+    # walk the source payload one event at a time so we can skip bad records
+    # without losing the rest of the batch.
     for raw_event in event_payloads:
         try:
             normalized = normalize_event(raw_event, observed)
@@ -207,6 +226,8 @@ def persist_events(
         ensure_event_tags(session, event, normalized["tags"])
         active_summary.events_upserted += 1
 
+        # each event can expand into multiple markets plus one fresh snapshot
+        # per market for the historical time series.
         for market_bundle in normalized["markets"]:
             market_issues = validate_market_bundle(market_bundle)
             if market_issues:
@@ -216,6 +237,8 @@ def persist_events(
             market = upsert_market(session, event, market_bundle["market"])
             session.flush()
             upsert_market_outcomes(session, market, market_bundle["outcomes"])
+            # snapshots are the time-series backbone of the dashboard. The
+            # insert helper deduplicates retries by snapshot_key.
             snapshot, inserted = insert_snapshot(session, market, market_bundle["snapshot"])
             active_summary.touched_snapshot_ids.add(snapshot.id)
             active_summary.touched_market_ids.add(market.id)
@@ -233,6 +256,7 @@ def fetch_trade_payloads_for_markets(
     client: PolymarketClient,
     markets: list[Market],
 ) -> list[dict[str, Any]]:
+    """Fetch recent trade payloads for the markets touched in this cycle."""
     condition_ids = [market.condition_id for market in markets if market.condition_id]
     payloads: list[dict[str, Any]] = []
     for batch in _batched(condition_ids, settings.polymarket_trades_batch_size):
@@ -247,9 +271,12 @@ def persist_trades(
     *,
     summary: IngestionCycleSummary,
 ) -> None:
+    """Persist normalized trades for stored markets after event ingestion."""
     market_by_condition_id = {
         str(market.condition_id): market for market in markets if market.condition_id
     }
+    # malformed trades are skipped individually for the same reason as events:
+    # keep the run moving and record what was dropped.
     for raw_trade in trade_payloads:
         try:
             normalized_trade = normalize_trade(raw_trade)
@@ -282,6 +309,7 @@ def execute_ingestion_cycle(
     session_factory: sessionmaker = SessionLocal,
     raise_on_failure: bool = False,
 ) -> IngestionCycleSummary:
+    """Run one full ingestion cycle from source fetch through derived analytics."""
     started_at = datetime.now(timezone.utc)
     summary = IngestionCycleSummary(trigger_mode=trigger_mode, run_started_at=started_at)
     run = create_run(
@@ -308,6 +336,8 @@ def execute_ingestion_cycle(
 
         with session_factory() as session:
             with session.begin():
+                # first persist raw market history so downstream detectors have a
+                # consistent local state to read from.
                 persist_events(
                     session,
                     event_payloads,
@@ -344,6 +374,8 @@ def execute_ingestion_cycle(
                 ).scalars().all()
 
         if touched_markets:
+            # trades are fetched after market persistence because they map back
+            # to stored markets through condition_id.
             trade_payloads = fetch_trade_payloads_for_markets(api_client, touched_markets)
             summary.trades_fetched = len(trade_payloads)
             with session_factory() as session:
@@ -363,6 +395,8 @@ def execute_ingestion_cycle(
 
         with session_factory() as session:
             with session.begin():
+                # signals are generated from newly touched snapshots only, and
+                # whales are generated from newly inserted trades only.
                 signal_result = generate_signals_for_snapshots(session, summary.touched_snapshot_ids)
         summary.signals_generated = signal_result.generated_count
         summary.signals_skipped = signal_result.skipped_count

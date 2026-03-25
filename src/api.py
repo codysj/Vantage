@@ -1,3 +1,9 @@
+"""Thin FastAPI read layer for the dashboard.
+
+The API stays intentionally small: it converts stored models and derived
+analytics into frontend-friendly responses without duplicating business logic.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -99,6 +105,8 @@ def _snapshot_summary(snapshot: MarketSnapshot | None) -> SnapshotSummary | None
 
 
 def _signal_response(signal: Signal, market) -> SignalResponse:
+    # serializer helpers keep the routes simple and make the dashboard contract
+    # explicit in one place.
     return SignalResponse(
         id=signal.id,
         market_id=market.market_id,
@@ -139,6 +147,8 @@ def _whale_response(whale_event: WhaleEvent, market, trade: Trade | None = None)
 
 
 def _feed_signal_response(item) -> SignalResponse:
+    # the global feed mixes snapshot-based anomaly signals with whale events, so
+    # we normalize both into one response shape here.
     if item.source == "whale":
         whale_event = item.record
         market = item.market
@@ -185,6 +195,8 @@ def _run_response(run: IngestionRun) -> RunResponse:
 
 
 def _sentiment_summary_response(summary) -> MarketSentimentSummaryResponse:
+    # the frontend distinguishes "no sentiment yet" from true failures, so the
+    # summary response carries an explicit empty/ok status.
     is_empty = summary.doc_count == 0
     return MarketSentimentSummaryResponse(
         market_id=summary.market.market_id,
@@ -226,6 +238,7 @@ def _raise_sentiment_http_error(exc: Exception) -> None:
         ) from exc
 
 
+# health and API index are mainly for operators, demos, and runtime checks.
 @app.get("/", response_model=ApiIndexResponse, summary="API index")
 def api_index() -> ApiIndexResponse:
     return ApiIndexResponse(
@@ -244,6 +257,7 @@ def health() -> HealthResponse:
     )
 
 
+# market routes drive the left browser and the main detail panel.
 @app.get("/markets", response_model=MarketListResponse, summary="List markets")
 def list_markets_api(
     limit: int = Query(20, ge=1, le=100),
@@ -328,6 +342,7 @@ def get_market_api(market_id: str, db: Session = Depends(get_db)) -> MarketDetai
     )
 
 
+# history routes give the frontend the time-series backbone for charts.
 @app.get(
     "/markets/{market_id}/history",
     response_model=SnapshotHistoryResponse,
@@ -367,6 +382,8 @@ def get_market_history_api(
     )
 
 
+# sentiment routes are lazy: the summary route can trigger compute-on-read,
+# while the documents route returns the stored headline-level details.
 @app.get(
     "/markets/{market_id}/sentiment",
     response_model=MarketSentimentSummaryResponse,
@@ -428,6 +445,7 @@ def get_market_sentiment_documents_api(
     )
 
 
+# signal routes back both the global "interesting now" feed and market-local timelines.
 @app.get(
     "/markets/{market_id}/signals",
     response_model=SignalListResponse,
@@ -458,6 +476,7 @@ def get_signals_api(
     return SignalListResponse(items=items, limit=limit, count=len(items))
 
 
+# run/status routes support the operational panel in the dashboard.
 @app.get("/runs", response_model=RunListResponse, summary="List recent ingestion runs")
 def get_runs_api(
     limit: int = Query(20, ge=1, le=100),

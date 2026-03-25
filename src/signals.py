@@ -1,3 +1,9 @@
+"""Rule-based anomaly detection over stored market snapshots.
+
+Signals are generated from local history, not directly from source APIs, so the
+dashboard can explain every alert in terms of persisted market behavior.
+"""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -48,6 +54,8 @@ def _as_decimal(value: Any) -> Decimal | None:
 
 
 def _extract_price(snapshot: MarketSnapshot) -> Decimal | None:
+    # use the stored last trade price when possible, but fall back to the first
+    # outcome price so binary markets still participate in signal detection.
     if snapshot.last_trade_price is not None:
         return _as_decimal(snapshot.last_trade_price)
     outcome_prices = snapshot.outcome_prices or []
@@ -57,6 +65,7 @@ def _extract_price(snapshot: MarketSnapshot) -> Decimal | None:
 
 
 def _relative_change(new_value: Decimal, old_value: Decimal) -> Decimal | None:
+    """Return absolute percentage change, or None when no baseline exists."""
     if old_value == 0:
         return None
     return abs((new_value - old_value) / old_value)
@@ -75,6 +84,7 @@ def compute_signals_for_snapshot(
     latest_snapshot: MarketSnapshot,
     history: list[MarketSnapshot],
 ) -> tuple[list[SignalCandidate], int]:
+    """Evaluate the latest snapshot against its recent history window."""
     if len(history) < 2:
         return [], 1
 
@@ -83,6 +93,8 @@ def compute_signals_for_snapshot(
     earlier_snapshots = history[:-1]
     earliest_snapshot = history[0]
 
+    # price movement asks whether the current market price moved sharply versus
+    # the earliest snapshot in the configured lookback window.
     latest_price = _extract_price(latest_snapshot)
     earliest_price = _extract_price(earliest_snapshot)
     if latest_price is not None and earliest_price is not None:
@@ -110,6 +122,8 @@ def compute_signals_for_snapshot(
     else:
         skipped_rules += 1
 
+    # volume spike compares the latest volume against the average of the recent
+    # history window instead of a global threshold.
     prior_volumes = [_as_decimal(snapshot.volume) for snapshot in earlier_snapshots if snapshot.volume is not None]
     latest_volume = _as_decimal(latest_snapshot.volume)
     if latest_volume is not None and prior_volumes:
@@ -141,6 +155,8 @@ def compute_signals_for_snapshot(
     else:
         skipped_rules += 1
 
+    # liquidity shift mirrors price movement: compare now versus the start of
+    # the window and only emit when the relative move is large enough.
     latest_liquidity = _as_decimal(latest_snapshot.liquidity)
     earliest_liquidity = _as_decimal(earliest_snapshot.liquidity)
     if latest_liquidity is not None and earliest_liquidity is not None:
@@ -172,6 +188,8 @@ def compute_signals_for_snapshot(
 
 
 def _insert_signal(session: Session, candidate: SignalCandidate) -> bool:
+    # one snapshot should only emit one row per signal type, so reruns stay
+    # idempotent and the feed does not duplicate the same event.
     dialect_name = session.bind.dialect.name
     if dialect_name == "postgresql":
         from sqlalchemy.dialects.postgresql import insert as dialect_insert
@@ -198,6 +216,7 @@ def generate_signals_for_snapshots(
     session: Session,
     snapshot_ids: set[int],
 ) -> SignalGenerationResult:
+    """Generate anomaly rows for the snapshots touched in the current run."""
     if not snapshot_ids:
         return SignalGenerationResult(generated_count=0, skipped_count=0, signal_type_counts={})
 

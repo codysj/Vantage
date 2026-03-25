@@ -1,3 +1,9 @@
+/*
+  App is the dashboard shell. It fetches the top-level resources needed for the
+  browser, global signal feed, and system status panel, then lets selection
+  state drive the market detail view.
+*/
+
 import { useEffect, useMemo, useState } from "react";
 
 import { getHealth, getMarkets, getRuns, getSignals } from "./api/client";
@@ -38,6 +44,8 @@ export default function App() {
   const [runsError, setRunsError] = useState<string | null>(null);
 
   const marketParams = useMemo(() => {
+    // market filtering is server-backed so the browser can stay compact without
+    // client-side joins across categories, signals, and market status.
     const active = activeFilter === "active" ? true : undefined;
     const closed = activeFilter === "closed" ? true : undefined;
 
@@ -91,6 +99,8 @@ export default function App() {
         setOffset(response.items.length);
         setHasMore(response.count === PAGE_SIZE);
         setSelectedMarketId((current) => {
+          // keep the current selection when filters still include it; otherwise
+          // fall back to the first visible market so the detail panel stays useful.
           if (response.items.length === 0) {
             return null;
           }
@@ -172,6 +182,8 @@ export default function App() {
   }, []);
 
   function handleLoadMore() {
+    // "load more" reuses the same server-side filter set so pagination stays
+    // consistent with the current browser controls.
     const active = activeFilter === "active" ? true : undefined;
     const closed = activeFilter === "closed" ? true : undefined;
 

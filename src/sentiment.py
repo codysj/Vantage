@@ -1,3 +1,10 @@
+"""Lazy sentiment enrichment for one market at a time.
+
+Sentiment is intentionally outside the ingestion scheduler: the backend computes
+and caches it on demand from headline/snippet documents when the dashboard asks
+for it.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -105,6 +112,7 @@ def _clean_query_text(value: str) -> str:
 
 
 def derive_market_query(market: Market) -> str:
+    """Turn market text into a deterministic news-search query."""
     base = market.question or market.event.title or market.slug or market.market_id
     cleaned = _clean_query_text(base)
     if not cleaned:
@@ -131,6 +139,7 @@ def _parse_published_at(value: str | None) -> datetime | None:
 
 
 def fetch_documents_for_market(query: str, max_docs: int | None = None) -> list[DocumentCandidate]:
+    """Fetch lightweight news documents and dedupe them by URL before storage."""
     if not settings.gnews_api_key:
         raise SentimentConfigurationError("GNEWS_API_KEY is required for sentiment fetching.")
 
@@ -187,6 +196,8 @@ def fetch_documents_for_market(query: str, max_docs: int | None = None) -> list[
 
 
 class HuggingFaceSentimentService:
+    """Thin wrapper that loads the configured sentiment model once per process."""
+
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
         self._pipeline = None
@@ -211,6 +222,7 @@ class HuggingFaceSentimentService:
         return self._pipeline
 
     def score_texts(self, texts: list[str]) -> list[SentimentInference]:
+        """Batch-score stored headline text and map it into project sentiment values."""
         if not texts:
             return []
 
@@ -439,6 +451,7 @@ def get_or_compute_market_sentiment(
     session: Session,
     market_id: str,
 ) -> SentimentComputationResult | None:
+    """Return cached sentiment when fresh, otherwise fetch, score, and store it."""
     market = session.execute(
         select(Market)
         .options(joinedload(Market.event))
@@ -451,6 +464,8 @@ def get_or_compute_market_sentiment(
         select(MarketSentimentSummary).where(MarketSentimentSummary.market_id == market.id)
     ).scalar_one_or_none()
     model_name = settings.sentiment_model_name
+    # the hot path is a cache hit: reuse stored documents and summary instead of
+    # hitting GNews or the model again.
     if _is_summary_fresh(summary) and _market_has_current_model_scores(session, market, model_name):
         logger.info("Sentiment cache hit for market %s", market.market_id)
         return SentimentComputationResult(
@@ -465,10 +480,14 @@ def get_or_compute_market_sentiment(
     logger.info("Sentiment cache %s for market %s with query '%s'", cache_state, market.market_id, query)
 
     try:
+        # on a miss or stale summary, fetch fresh headline candidates for this
+        # market-specific query and only insert documents we have not seen yet.
         candidates = fetch_documents_for_market(query, settings.sentiment_max_docs_per_market)
         logger.info("Fetched %s sentiment candidates for market %s", len(candidates), market.market_id)
         inserted_documents = _upsert_documents(session, market, candidates)
         logger.info("Inserted %s new sentiment documents for market %s", len(inserted_documents), market.market_id)
+        # only score documents missing a score for the current model so repeat
+        # requests stay fast and idempotent.
         market_documents = [
             document
             for document, _score in _get_market_documents(session, market, model_name)
@@ -484,6 +503,8 @@ def get_or_compute_market_sentiment(
             summary.avg_sentiment,
         )
     except IntegrityError as exc:
+        # concurrent requests can race on first compute. Roll back and reload
+        # whatever the winning request already wrote instead of failing.
         session.rollback()
         logger.warning(
             "Sentiment cache race recovered for market %s while writing cache rows: %s",
@@ -506,6 +527,8 @@ def get_or_compute_market_sentiment(
     if refreshed is None:
         logger.error("Sentiment summary missing after refresh for market %s", market.market_id)
         return None
+    # no headlines is still a successful outcome. We cache the empty summary so
+    # the frontend can render a real empty state instead of retrying.
     if refreshed.summary.doc_count == 0:
         logger.warning("No sentiment documents found for market %s", market.market_id)
     return refreshed
