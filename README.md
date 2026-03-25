@@ -1,8 +1,8 @@
-# Information Edge Phase 6: NLP Sentiment Layer
+# Information Edge Phase 7: Sentiment Overlay
 
-This repo now covers Phase 1 through Phase 6 of Information Edge plus the whale tracker: it can fetch Polymarket events and trades, store and analyze them, run a repeatable ingestion pipeline, generate signals and whale events, expose market analytics through a read-only FastAPI backend, render a React dashboard on top of that backend, and enrich markets with on-demand cached news sentiment.
+This repo now covers Phase 1 through Phase 7 of Information Edge plus the whale tracker: it can fetch Polymarket events and trades, store and analyze them, run a repeatable ingestion pipeline, generate signals and whale events, expose market analytics through a read-only FastAPI backend, render a React dashboard on top of that backend, enrich markets with on-demand cached news sentiment, and visualize price, sentiment, and market events together in one correlation view.
 
-## What Phase 5 Adds
+## What The Current Version Adds
 
 - A new `frontend/` app built with Vite + React + TypeScript
 - A split-panel dashboard with a market browser and market detail view
@@ -11,8 +11,10 @@ This repo now covers Phase 1 through Phase 6 of Information Edge plus the whale 
 - Real whale detection from Polymarket trade ingestion
 - Whale events persisted and exposed through the API
 - Whale activity surfaced in the dashboard and market detail view
-- A lightweight pipeline-runs observability panel
+- A compact pipeline/system status panel
 - On-demand cached market sentiment from recent headlines
+- A full market correlation view showing price, sentiment, and anomaly/whale timing together
+- Layer toggles, event markers, shared chart tooltips, and recent sentiment headlines in the market detail experience
 - Frontend smoke/integration tests with Vitest + React Testing Library
 
 ## What Still Does Not Include
@@ -20,8 +22,8 @@ This repo now covers Phase 1 through Phase 6 of Information Edge plus the whale 
 - Docker or deployment tooling
 - CI/CD automation
 - Alerting or notification integrations
-- Full NLP dashboards or chart overlays
 - Real-time streaming
+- Rich topic clustering or multi-market sentiment analytics
 
 ## Schema Overview
 
@@ -327,17 +329,18 @@ These same endpoints are easy to inspect in a browser or test in Postman.
 The new dashboard is intentionally simple and read-only:
 
 - left column: search/filter controls and market browser
-- right column: global signal feed, recent pipeline runs, and the selected market detail view
+- upper content area: global signal feed and system status
+- lower content area: selected market detail with a full correlation view
 
 The market detail view shows:
 
 - market question and summary stats
-- historical price chart from `/markets/{market_id}/history`
+- a correlation panel that aligns price history, sentiment trend, and anomaly/whale markers on one timeline
 - recent market-specific signals from `/markets/{market_id}/signals`
-- whale summary and history from `/markets/{market_id}/whales` and `/markets/{market_id}/whale-summary`
-- on-demand sentiment summary and headline list from `/markets/{market_id}/sentiment`
+- cached sentiment summary and recent sentiment headlines from `/markets/{market_id}/sentiment` and `/markets/{market_id}/sentiment/documents`
+- an on-demand fallback CTA that generates sentiment context only when a market does not have cached sentiment yet
 
-This gives the project a usable full-stack demo surface without skipping ahead into sentiment, auth, or write APIs.
+This gives the project a usable full-stack demo surface for the core product question: whether sentiment shifts and whale/anomaly activity lead, lag, or coincide with market price movement.
 
 ## Manual Demo Flow
 
@@ -350,7 +353,8 @@ This gives the project a usable full-stack demo surface without skipping ahead i
    - `cd frontend`
    - `npm run dev`
 5. Open the dashboard in your browser.
-6. Search for a market, click it, and inspect the chart, recent signals, whale activity, and run panel.
+6. Search for a market, click it, and inspect the correlation view, recent signals, and system status panel.
+7. If a market has no cached sentiment yet, click `Load sentiment drivers` in the correlation view to generate and cache it on demand.
 
 ## Logging And Integrity Checks
 
@@ -405,12 +409,13 @@ python -m src.whales backfill --market-id <MARKET_ID>
 
 Sentiment is an on-demand enrichment layer, not part of the scheduled ingestion pipeline.
 
-- the frontend requests sentiment only when the user clicks `Load sentiment`
+- the market detail view does one lightweight cached read on market open
 - the backend checks `market_sentiment_summary`
 - if the cached summary is still within `SENTIMENT_TTL_HOURS`, it returns immediately
-- otherwise it fetches recent GNews headlines, deduplicates documents by URL, scores only unscored docs for the configured model, updates the summary, and caches the result
+- if no sentiment is cached yet, the correlation panel shows a CTA to load sentiment drivers on demand
+- clicking that CTA reuses the existing sentiment endpoint to fetch recent GNews headlines, deduplicate documents by URL, score only unscored docs for the configured model, update the summary, and cache the result
 
-This keeps repeat access fast without adding another background worker.
+This keeps repeat access fast without adding another background worker, while still allowing uncached markets to be enriched from the UI.
 
 ## Backend API Design
 
@@ -436,7 +441,7 @@ cd frontend
 npm run test
 ```
 
-The frontend test suite covers the app shell, market list rendering, search-driven refetch behavior, market detail loading, chart empty states, signal rendering, whale placeholder rendering, and fetch failure states.
+The frontend test suite covers the app shell, market list rendering, search-driven refetch behavior, market detail loading, correlation view rendering, empty sentiment CTA behavior, sentiment generation fallback, signal rendering, and fetch failure states.
 
 ## Configuration
 
@@ -487,8 +492,8 @@ Environment variables now include:
 - Signal detection is also intentionally lightweight: clear thresholds, recent-vs-baseline comparisons, and explainable metadata instead of heavier statistical or ML models.
 - Sentiment uses lazy caching by design so markets are enriched only when needed, and repeated reads stay fast.
 - The backend API is read-only by design in this phase, so it stays focused on exposing the analytics system rather than becoming a full admin platform.
-- The frontend is also intentionally simple: plain `fetch`, one main dashboard view, lightweight CSS, and Recharts for one clear historical probability chart.
+- The frontend is also intentionally simple: plain `fetch`, one main dashboard view, lightweight CSS, and Recharts for a synchronized correlation view instead of a heavier analytics frontend.
 
 ## Known Limitation
 
-The pipeline now ingests events plus recent public trades, but it still relies on Polymarket's read APIs rather than authenticated order/trader infrastructure. Sentiment currently uses headline/snippet text only, requires a configured GNews API key, and does not yet render chart overlays or richer topic clustering. Auth, deployment, and production infra remain deferred to later phases.
+The pipeline now ingests events plus recent public trades, but it still relies on Polymarket's read APIs rather than authenticated order/trader infrastructure. Sentiment uses headline/snippet text only, requires a configured GNews API key, and remains a lightweight market-level enrichment layer rather than a full news intelligence system. Auth, deployment, real-time streaming, and production infra remain deferred to later phases.
